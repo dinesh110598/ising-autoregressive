@@ -149,9 +149,9 @@ class PixelCNN(tfk.Model):
         return sample
 
     def _log_prob(self, sample, x_hat):
-        mask = (sample + 1)/2#Remember that x_hat gives prob of all 1's not given sample's
+        mask = tf.cast((sample + 1)/2, tf.float32)#Remember that x_hat gives prob of all 1's not given sample's
         log_prob = (
-            tfm.log(x_hat + self.epsilon)*mask +
+            tfm.log(x_hat + self.epsilon)*mask + #type: ignore
             tfm.log(1 - x_hat + self.epsilon)*tf.cast(1 - mask, tf.float32))#type: ignore
         log_prob = tfm.reduce_sum(log_prob, [1,2,3])
         return log_prob
