@@ -1,3 +1,4 @@
+# %%
 import ising
 from tensorflow import keras as tfk
 from tensorflow import math as tfm
@@ -24,10 +25,6 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
     """
     if net==None:
         net = ising.PixelCNN(**kwargs)
-    #step_schedule = 0
-    #loss_schedule = tf.TensorArray(tf.float32, 0, True, False)
-    #We'll reduce the learning rate by a factor, if loss doesn't reduce significantly
-    #after many batches of training
     beta_conv = tf.cast(beta, tf.float32)
     history = {'step':[],'Free energy mean':[], 'Free energy std':[], 'Energy mean':[], 'Energy std':[],
     'Train time':[]}
@@ -62,18 +59,6 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
             beta = beta_conv*(1 - beta_anneal**step)
         sample = net.sample(batch_size)
         loss, energy = backprop_graph(beta, sample) #type: ignore
-        #We schedule to decrease the learning rate when loss doesn't reduce signifcantly
-        #loss_schedule = loss_schedule.write(step_schedule, tfm.reduce_mean(loss))
-        #diff = 0.01
-        #if step_schedule > 500:
-            #diff = (
-                #tfm.reduce_mean(loss_schedule.gather(tf.range(50))) - 
-                #tfm.reduce_mean(loss_schedule.gather(tf.range(step_schedule-50, step_schedule)))
-                #)
-        #step_schedule += 1
-        #if diff > 0 and diff < 1e-4:
-            #learning_rate.assign(learning_rate*0.92)
-            #step_schedule = 0
 
         if (step%interval) == interval-1:
             t2 = time()
@@ -84,6 +69,10 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
             history['Energy std'].append( tfm.reduce_std(energy))
             history['Train time'].append( (t2-t1)/interval)
             t1 = time()
-    #loss_schedule = loss_schedule.mark_used()
+
+        #Reduces learning rate
+        if (step-1)%1000 == 0:
+            learning_rate.assign(learning_rate*0.5)
     
     return history
+# %%
