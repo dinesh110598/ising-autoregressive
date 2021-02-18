@@ -153,16 +153,18 @@ class PixelCNN(tfk.Model):
         sample = sample*flip#Done to ensure Z2 symmetry 
         return sample
 
-    def graph_sampler(self, sample):
+    def graph_sampler(self, sample, seed):
         #Same as sample method above but specialised for graph calculation
         batch_size = sample.shape[0]
         sample.assign(tf.zeros(sample.shape))
         counts = tf.ones([batch_size, 1])
+        tf_binomial = tf.random.stateless_binomial
         for i in range(self.L):
             for j in range(self.L):
+                seed.assign((seed*1664525 + 1013904223) % 2**31)
                 x_hat = self.call(sample)
-                sample = sample[:,i,j,:].assign(self.rng.binomial([batch_size,1], counts, 
-                                x_hat[:,i,j,:], tf.float32)*2 - 1)
+                sample = sample[:,i,j,:].assign(tf_binomial([batch_size,1], seed, 
+                                counts, x_hat[:,i,j,:], tf.float32)*2 - 1)
         #x_hat = self.call(sample)
         counts = tf.expand_dims(counts, -1)
         counts = tf.expand_dims(counts, -1)

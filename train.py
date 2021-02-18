@@ -1,5 +1,6 @@
 # %%
 import ising
+import numpy as np
 from tensorflow import keras as tfk
 from tensorflow import math as tfm
 import tensorflow as tf
@@ -30,7 +31,7 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
     'Train time':[]}
     interval = 20
 
-    def backprop(beta, sample):
+    def backprop(beta, sample, seed):
         """Performs backpropagation on the calculated loss function
 
         Args:
@@ -39,7 +40,7 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
         Returns:
             loss (float): The current loss function for the sampled batch
         """
-        sample = net.graph_sampler(sample)
+        sample = net.graph_sampler(sample, seed)
         energy = ising.energy(sample)
         beta = tf.cast(beta, tf.float32)
         with tf.GradientTape(True, False) as tape:
@@ -52,14 +53,17 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
         optimizer.apply_gradients(zip(grads, net.trainable_weights))
         return loss, energy
 
+    #Routines required for graph compilation
     backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
     sample_graph = tf.Variable(tf.zeros([batch_size,net.L,net.L,1]), trainable=False)
+    seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
+        dtype=tf.int32, trainable=False)
     t1 = time()
     
     for step in tqdm(range(iter)):
         if anneal==True:
             beta = beta_conv*(1 - beta_anneal**step)
-        loss, energy = backprop_graph(beta, sample_graph) #type: ignore
+        loss, energy = backprop_graph(beta, sample_graph, seed_graph) #type: ignore
 
         if (step%interval) == interval-1:
             t2 = time()
