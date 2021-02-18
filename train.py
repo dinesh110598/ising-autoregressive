@@ -39,6 +39,7 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
         Returns:
             loss (float): The current loss function for the sampled batch
         """
+        sample = net.graph_sampler(sample)
         energy = ising.energy(sample)
         beta = tf.cast(beta, tf.float32)
         with tf.GradientTape(True, False) as tape:
@@ -52,13 +53,13 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
         return loss, energy
 
     backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
+    sample_graph = tf.Variable(tf.zeros([batch_size,net.L,net.L,1]), trainable=False)
     t1 = time()
     
     for step in tqdm(range(iter)):
         if anneal==True:
             beta = beta_conv*(1 - beta_anneal**step)
-        sample = net.sample(batch_size)
-        loss, energy = backprop_graph(beta, sample) #type: ignore
+        loss, energy = backprop_graph(beta, sample_graph) #type: ignore
 
         if (step%interval) == interval-1:
             t2 = time()

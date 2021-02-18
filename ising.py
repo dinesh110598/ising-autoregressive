@@ -74,6 +74,7 @@ class PixelCNN(tfk.Model):
         self.kernel_size = kernel_size
         self.res_block = res_block
         self.epsilon = tf.cast(epsilon, tf.float32)
+        self.rng = tf.random.Generator.from_non_deterministic_state()
 
         self.x_hat_mask = np.ones([1, self.L, self.L, 1], np.float32)
         self.x_hat_mask[:,0,0,:] = 0
@@ -139,13 +140,34 @@ class PixelCNN(tfk.Model):
     
     def sample(self, batch_size):
         sample = np.zeros([batch_size,self.L,self.L,1], np.float32)
+        counts = tf.ones([batch_size, 1])
         for i in range(self.L):
             for j in range(self.L):
                 x_hat = self.call(sample)
-                sample[:,i,j,:] = np.random.binomial(1, x_hat[:,i,j,:])*2 - 1
+                sample[:,i,j,:] = self.rng.binomial([batch_size,1], counts, 
+                                x_hat[:,i,j,:], tf.float32)*2 - 1
         #x_hat = self.call(sample)
-        flip = np.random.choice([-1,1], [batch_size,1,1,1])
+        counts = tf.expand_dims(counts, -1)
+        counts = tf.expand_dims(counts, -1)
+        flip = self.rng.binomial([batch_size,1,1,1], counts, 0.5*counts, tf.float32)*2 - 1
         sample = sample*flip#Done to ensure Z2 symmetry 
+        return sample
+
+    def graph_sampler(self, sample):
+        #Same as sample method above but specialised for graph calculation
+        batch_size = sample.shape[0]
+        sample.assign(tf.zeros(sample.shape))
+        counts = tf.ones([batch_size, 1])
+        for i in range(self.L):
+            for j in range(self.L):
+                x_hat = self.call(sample)
+                sample = sample[:,i,j,:].assign(self.rng.binomial([batch_size,1], counts, 
+                                x_hat[:,i,j,:], tf.float32)*2 - 1)
+        #x_hat = self.call(sample)
+        counts = tf.expand_dims(counts, -1)
+        counts = tf.expand_dims(counts, -1)
+        flip = self.rng.binomial([batch_size,1,1,1], counts, 0.5*counts, tf.float32)*2 - 1
+        sample.assign(sample*flip)#Done to ensure Z2 symmetry 
         return sample
 
     def _log_prob(self, sample, x_hat):
