@@ -55,9 +55,10 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
 
     #Routines required for graph compilation
     backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
-    sample_graph = tf.Variable(tf.zeros([batch_size,net.L,net.L,1]), trainable=False)
-    seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
-        dtype=tf.int32, trainable=False)
+    with tf.device('/CPU:0'):
+        sample_graph = tf.Variable(tf.zeros([batch_size,net.L,net.L,1]), trainable=False)
+        seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
+            dtype=tf.int32, trainable=False)
     t1 = time()
     
     for step in tqdm(range(iter)):
