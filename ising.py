@@ -167,9 +167,11 @@ class PixelCNN(tfk.Model):
                     sample = sample[:,i,j,:].assign(tf_binomial([batch_size,1], seed, 
                                     counts, x_hat[:,i,j,:], tf.float32)*2 - 1)
             #x_hat = self.call(sample)
+            seed.assign((seed*1664525 + 1013904223) % 2**31)
             counts = tf.expand_dims(counts, -1)
             counts = tf.expand_dims(counts, -1)
-            flip = self.rng.binomial([batch_size,1,1,1], counts, 0.5*counts, tf.float32)*2 - 1
+            flip = tf_binomial([batch_size,1,1,1], seed, counts, 0.5*counts, 
+                tf.float32)*2 - 1
             sample.assign(sample*flip)#Done to ensure Z2 symmetry 
         return sample
 
