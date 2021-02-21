@@ -8,7 +8,7 @@ from tensorflow import math as tfm
 J = -1.#This is the value of Ising coupling constant
 
 class MaskedConv2D(tfk.layers.Layer):
-    def __init__(self, mask_type='A', filters=128, kernel_size=5, **kwargs):
+    def __init__(self, mask_type='A', filters=64, kernel_size=5, **kwargs):
         """Convolutional layer that's surjective and masks out kernel values in
         right half of the middle row and the entire bottom half. This is necessary
         in order to preserve the autoregressive property of every pixel
@@ -16,7 +16,7 @@ class MaskedConv2D(tfk.layers.Layer):
         Args:
             mask_type (str, optional): Determines whether the middle value of kernel
             is masked. Defaults to 'A'.
-            filters (int, optional): No of output filters. Defaults to 128.
+            filters (int, optional): No of output filters. Defaults to 64.
             kernel_size (int, optional): Size of convolution kernel. Defaults to 5.
             Other **kwargs pertaining to the regular conv2d layer may be passed
         """
@@ -46,7 +46,7 @@ class ResBlock(tfk.layers.Layer):
         """Residual layer that adds a neural network block with its inputs
 
         Args:
-            block (Keras layer): Bijective block to add with its input
+            block (Keras Sequential block): Bijective block to add with its input
         """
         super(ResBlock, self).__init__()
         self.block = block
@@ -154,7 +154,7 @@ class PixelCNN(tfk.Model):
         return sample
 
     def graph_sampler(self, sample, seed):
-        #Same as sample method above but specialised for graph calculation
+        #Same as sample method above but specialised for graph compilation
         batch_size = sample.shape[0]
         counts = tf.ones([batch_size, 1])
         sample.assign(tf.zeros(sample.shape))
