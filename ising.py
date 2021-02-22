@@ -140,16 +140,13 @@ class PixelCNN(tfk.Model):
     
     def sample(self, batch_size):
         sample = np.zeros([batch_size,self.L,self.L,1], np.float32)
-        counts = tf.ones([batch_size, 1])
         for i in range(self.L):
             for j in range(self.L):
-                x_hat = self.call(sample)
-                sample[:,i,j,:] = self.rng.binomial([batch_size,1], counts, 
-                                x_hat[:,i,j,:], tf.float32)*2 - 1
+                x_hat = self.call(sample).numpy()
+                sample[:,i,j,:] = np.random.binomial(1, 
+                                x_hat[:,i,j,:], [batch_size,1])*2 - 1
         #x_hat = self.call(sample)
-        counts = tf.expand_dims(counts, -1)
-        counts = tf.expand_dims(counts, -1)
-        flip = self.rng.binomial([batch_size,1,1,1], counts, 0.5*counts, tf.float32)*2 - 1
+        flip = np.random.binomial(1, 0.5, [batch_size,1,1,1])*2 - 1
         sample = sample*flip#Done to ensure Z2 symmetry 
         return sample
 
