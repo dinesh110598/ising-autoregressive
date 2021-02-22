@@ -74,7 +74,6 @@ class PixelCNN(tfk.Model):
         self.kernel_size = kernel_size
         self.res_block = res_block
         self.epsilon = tf.cast(epsilon, tf.float32)
-        self.rng = tf.random.Generator.from_non_deterministic_state()
 
         self.x_hat_mask = np.ones([1, self.L, self.L, 1], np.float32)
         self.x_hat_mask[:,0,0,:] = 0
