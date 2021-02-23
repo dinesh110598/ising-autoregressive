@@ -12,7 +12,7 @@ from time import time
 lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.01, 500, 0.8, True)
 optimizer = tfk.optimizers.Adam(lr_schedule, 0.5, 0.999)
 beta_anneal = 0.99
-net = layers.PixelCNN()
+model = layers.PixelCNN()
 
 def backprop(beta, sample, seed):
     """Performs backpropagation on the calculated loss function
@@ -23,17 +23,17 @@ def backprop(beta, sample, seed):
     Returns:
         loss (float): The current loss function for the sampled batch
     """
-    sample = net.graph_sampler(sample, seed)
+    sample = model.graph_sampler(sample, seed)
     energy = ising.energy(sample)
     beta = tf.cast(beta, tf.float32)
     with tf.GradientTape(True, False) as tape:
-        tape.watch(net.trainable_weights)
-        log_prob = net.log_prob(sample)
+        tape.watch(model.trainable_weights)
+        log_prob = model.log_prob(sample)
         with tape.stop_recording():
-            loss = (log_prob + beta*energy) / (net.L**2)#type: ignore
+            loss = (log_prob + beta*energy) / (model.L**2)#type: ignore
         loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
-    grads = tape.gradient(loss_reinforce, net.trainable_weights)
-    optimizer.apply_gradients(zip(grads, net.trainable_weights))
+    grads = tape.gradient(loss_reinforce, model.trainable_weights)
+    optimizer.apply_gradients(zip(grads, model.trainable_weights))
     return loss, energy
 
 backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
@@ -46,7 +46,7 @@ def train_loop(iter, batch_size, beta, anneal=True, **kwargs):
         batch_size (int): No of lattices to sample for single training step
         beta (float): Inverse temperature to use
     Options:
-        If net is not None, **kwargs maybe supplied to initialize it.
+        If model is not None, **kwargs maybe supplied to initialize it.
         See docstring for ising.PixelCNN() for details.
     """
     
@@ -56,7 +56,7 @@ def train_loop(iter, batch_size, beta, anneal=True, **kwargs):
     interval = 20
 
     #Routines required for graph compilation
-    sample_graph = tf.Variable(tf.zeros([batch_size,net.L,net.L,1]), trainable=False)
+    sample_graph = tf.Variable(tf.zeros([batch_size,model.L,model.L,1]), trainable=False)
     seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
         dtype=tf.int32, trainable=False)
     t1 = time()
