@@ -226,8 +226,8 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = self.hor_conv(h_stack)
         
         #Convolve v_stack and connect to h_stack
-        v_stack = self.conn_conv(v_stack)
-        h_stack = tfm.add(h_stack, v_stack)
+        v_stack2 = self.conn_conv(v_stack)
+        h_stack = tfm.add(h_stack, v_stack2)
         
         #"Gating" performed on both stacks
         v_stack0, v_stack1 = tf.split(v_stack, 2, axis=-1)
