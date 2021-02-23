@@ -7,8 +7,8 @@ import tensorflow as tf
 from tqdm import tqdm
 from time import time
 # %%
-learning_rate = tf.Variable(0.001, trainable=False, dtype=tf.float32)
-optimizer = tfk.optimizers.Adam(learning_rate, 0.5, 0.999)
+lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.001, 500, 0.8, True)
+optimizer = tfk.optimizers.Adam(lr_schedule, 0.5, 0.999)
 beta_anneal = 0.99
 net = ising.PixelCNN()
 
@@ -36,15 +36,13 @@ def backprop(beta, sample, seed):
 
 backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
 
-def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
+def train_loop(iter, batch_size, beta, anneal=True, **kwargs):
     """Runs the unsupervised training loop for VAN training.
 
     Args:
         iter (int): No of batches to use for training
         batch_size (int): No of lattices to sample for single training step
         beta (float): Inverse temperature to use
-        net (tf.keras.Model): Pre-initialized model to train. If None, 
-            model will be initialized in this function
     Options:
         If net is not None, **kwargs maybe supplied to initialize it.
         See docstring for ising.PixelCNN() for details.
@@ -75,10 +73,6 @@ def train_loop(iter, batch_size, beta, net=None, anneal=True, **kwargs):
             history['Energy std'].append( tfm.reduce_std(energy))
             history['Train time'].append( (t2-t1)/interval)
             t1 = time()
-
-        #Reduces learning rate
-        if (step-1)%1000 == 0:
-            learning_rate.assign(learning_rate*0.8)
     
     return history
 # %%
