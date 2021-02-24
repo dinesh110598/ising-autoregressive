@@ -196,6 +196,7 @@ class PixelCNN(tfk.Model):
 class GatedConvBlock(tfk.layers.Layer):
     def __init__(self, out_features, mask_type='A',kernel_size=5):
         super(GatedConvBlock, self).__init__()
+        assert out_features%2 == 0
         self.p = out_features
         self.n = kernel_size
         
@@ -247,6 +248,16 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = tfm.add(h_stack, h_stack2)
         
         return tf.stack([h_stack, v_stack], axis=-1)
+    
+class FinalConv(tfk.layers.Layer):
+    def __init__(self):
+        super(FinalConv, self).__init__()
+        self.conv = tfk.layers.Conv2D(1, 1, activation='sigmoid')
+    
+    def call(self, x):
+        x = tf.gather(x, 0, axis=-1)
+        x = self.conv(x)
+        return x
 
 class GatedPixelCNN(tfk.Model):
     def __init__(self, L=24, kernel_size=3, net_depth=3, net_width=32,
@@ -268,25 +279,18 @@ class GatedPixelCNN(tfk.Model):
         
         layers = []
         layers.append( tfk.layers.Input((self.L, self.L, 1, 2)))
-        if self.net_depth == 1:
-            layers.append( GatedConvBlock(1, 'A', self.kernel_size))
-            layers.append(tfk.layers.Activation('sigmoid'))
-        else:
-            layers.append( GatedConvBlock(self.net_width, 'A', self.kernel_size))
+        layers.append( GatedConvBlock(self.net_width, 'A', self.kernel_size))
         
-        for _ in range(self.net_depth-2):
+        for _ in range(self.net_depth-1):
             layers.append( GatedConvBlock(self.net_width, 'B', self.kernel_size))
         
-        if self.net_depth > 1:
-            layers.append( GatedConvBlock(1, 'B', self.kernel_size))
-            layers.append( tfk.layers.Activation('sigmoid'))
+        layers.append(FinalConv())
             
         self.net = tfk.Sequential(layers)
         
     def call(self, sample):
         x = tf.stack([sample, sample], axis=-1)
-        x = self.net(x)
-        x_hat = tf.gather(x, 0, axis=-1)
+        x_hat = self.net(x)
         x_hat = tfm.multiply(x_hat,self.x_hat_mask)
         x_hat = tfm.add(x_hat, self.x_hat_bias)
         return x_hat
