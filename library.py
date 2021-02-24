@@ -202,17 +202,17 @@ class GatedConvBlock(tfk.layers.Layer):
         if mask_type=='A':
             self.hor_cropping = tfk.layers.Cropping2D(((0,0),(0,1)))
             self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n//2,0)))
-            self.hor_conv = tfk.layers.Conv2D(2*self.p, [1,self.n//2])
+            self.hor_conv = tfk.layers.Conv2D(self.p, [1,self.n//2])
         elif mask_type=='B':
             self.hor_cropping = tfk.layers.Cropping2D()
             self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n//2,0)))
-            self.hor_conv = tfk.layers.Conv2D(2*self.p, [1,self.n//2+1])
+            self.hor_conv = tfk.layers.Conv2D(self.p, [1,self.n//2+1])
             
         self.ver_cropping = tfk.layers.Cropping2D(((0,1),(0,0)))
         self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
-        self.ver_conv = tfk.layers.Conv2D(2*self.p, [self.n//2, self.n])
+        self.ver_conv = tfk.layers.Conv2D(self.p, [self.n//2, self.n])
         
-        self.res_conv = tfk.layers.Conv2D(2*self.p, [1,1], use_bias=False)
+        self.res_conv = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
         self.res_conv2 = tfk.layers.Conv2D(self.p, [1,1])
         self.res_conv3 = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
     
@@ -235,12 +235,7 @@ class GatedConvBlock(tfk.layers.Layer):
         v_stack2 = self.res_conv(v_stack)
         h_stack = tfm.add(h_stack, v_stack2)
         
-        #"Gating" performed on both stacks
-        v_stack0, v_stack1 = tf.split(v_stack, 2, axis=-1)
-        v_stack0 = tfk.activations.tanh(v_stack0)
-        v_stack1 = tfk.activations.sigmoid(v_stack1)
-        v_stack = tfm.multiply(v_stack0, v_stack1)
-        
+        #"Gating" performed on horizontal stack        
         h_stack0, h_stack1 = tf.split(h_stack, 2, axis=-1)
         h_stack0 = tfk.activations.tanh(h_stack0)
         h_stack1 = tfk.activations.sigmoid(h_stack1)
@@ -283,6 +278,7 @@ class GatedPixelCNN(tfk.Model):
         
         if self.net_depth > 1:
             layers.append( GatedConvBlock(1, 'B', self.kernel_size))
+            layers.append( tfk.layers.Activation('sigmoid'))
             
         self.net = tfk.Sequential(layers)
         
