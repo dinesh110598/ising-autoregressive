@@ -12,6 +12,8 @@ lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.01, 500, 0.8, True)
 optimizer = tfk.optimizers.Adam(lr_schedule, 0.5, 0.999)
 beta_anneal = 0.99
 model = library.PixelCNN()
+batch_size = 50
+sample = tf.Variable(tf.zeros([batch_size,model.L,model.L,1]), trainable=False)
 
 def backprop(beta, sample, seed):
     """Performs backpropagation on the calculated loss function
@@ -37,7 +39,7 @@ def backprop(beta, sample, seed):
 
 backprop_graph = tf.function(backprop)#Constructs a graph for faster gradient calculations
 
-def train_loop(iter, batch_size, beta, anneal=True, **kwargs):
+def train_loop(iter, beta, anneal=True, **kwargs):
     """Runs the unsupervised training loop for VAN training.
 
     Args:
@@ -55,7 +57,6 @@ def train_loop(iter, batch_size, beta, anneal=True, **kwargs):
     interval = 20
 
     #Routines required for graph compilation
-    sample_graph = tf.Variable(tf.zeros([batch_size,model.L,model.L,1]), trainable=False)
     seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
         dtype=tf.int32, trainable=False)
     t1 = time()
