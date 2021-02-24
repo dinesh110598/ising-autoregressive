@@ -270,6 +270,7 @@ class GatedPixelCNN(tfk.Model):
         layers.append( tfk.layers.Input((self.L, self.L, 1, 2)))
         if self.net_depth == 1:
             layers.append( GatedConvBlock(1, 'A', self.kernel_size))
+            layers.append(tfk.layers.Activation('sigmoid'))
         else:
             layers.append( GatedConvBlock(self.net_width, 'A', self.kernel_size))
         
