@@ -1,7 +1,6 @@
 # %%
-from tensorflow.keras import layers
 import ising
-import layers
+import library
 import numpy as np
 from tensorflow import keras as tfk
 from tensorflow import math as tfm
@@ -12,7 +11,7 @@ from time import time
 lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.01, 500, 0.8, True)
 optimizer = tfk.optimizers.Adam(lr_schedule, 0.5, 0.999)
 beta_anneal = 0.99
-model = layers.PixelCNN()
+model = library.PixelCNN()
 
 def backprop(beta, sample, seed):
     """Performs backpropagation on the calculated loss function

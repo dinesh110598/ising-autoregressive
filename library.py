@@ -188,6 +188,11 @@ class PixelCNN(tfk.Model):
         log_prob -= tfm.log(2.)
         return tf.cast(log_prob, tf.float32)
     
+
+#Following constitute an alternative, improved autoregressive model
+#with a design inspired from LSTM architecture for better learning capability
+#They also have seperate horizontal and vertical stacks to counter the problem
+#of blind spots in deep PixelCNN model
 class GatedConvBlock(tfk.layers.Layer):
     def __init__(self, out_features, mask_type='A',kernel_size=5):
         super(GatedConvBlock, self).__init__()
@@ -207,8 +212,9 @@ class GatedConvBlock(tfk.layers.Layer):
         self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
         self.ver_conv = tfk.layers.Conv2D(2*self.p, [self.n//2, self.n])
         
-        self.conn_conv = tfk.layers.Conv2D(2*self.p, [1,1])
-        self.conn_conv2 = tfk.layers.Conv2D(self.p, [1,1])
+        self.res_conv = tfk.layers.Conv2D(2*self.p, [1,1], use_bias=False)
+        self.res_conv2 = tfk.layers.Conv2D(self.p, [1,1])
+        self.res_conv3 = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
     
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
@@ -226,7 +232,7 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = self.hor_conv(h_stack)
         
         #Convolve v_stack and connect to h_stack
-        v_stack2 = self.conn_conv(v_stack)
+        v_stack2 = self.res_conv(v_stack)
         h_stack = tfm.add(h_stack, v_stack2)
         
         #"Gating" performed on both stacks
@@ -240,8 +246,9 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack1 = tfk.activations.sigmoid(h_stack1)
         h_stack = tfm.multiply(h_stack0, h_stack1)
         
-        #Convolve h_stack and connect to h_stack2
-        h_stack = self.conn_conv2(h_stack)
+        #Convolve h_stack2, h_stack and connect them
+        h_stack = self.res_conv2(h_stack)
+        h_stack2 = self.res_conv3(h_stack2)
         h_stack = tfm.add(h_stack, h_stack2)
         
         return tf.stack([h_stack, v_stack], axis=-1)
