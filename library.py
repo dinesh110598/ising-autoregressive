@@ -204,14 +204,21 @@ class GatedConvBlock(tfk.layers.Layer):
             self.hor_cropping = tfk.layers.Cropping2D(((0,0),(0,1)))
             self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n//2,0)))
             self.hor_conv = tfk.layers.Conv2D(self.p, [1,self.n//2])
+            
+            self.ver_cropping = tfk.layers.Cropping2D(((0,1),(0,0)))
+            self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
+            self.ver_conv = tfk.layers.Conv2D(self.p, [self.n//2, self.n])    
+            
         elif mask_type=='B':
             self.hor_cropping = tfk.layers.Cropping2D()
             self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n//2,0)))
             self.hor_conv = tfk.layers.Conv2D(self.p, [1,self.n//2+1])
+                
+            self.ver_cropping = tfk.layers.Cropping2D()
+            self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
+            self.ver_conv = tfk.layers.Conv2D(self.p, [(self.n//2)+1, self.n])
             
-        self.ver_cropping = tfk.layers.Cropping2D(((0,1),(0,0)))
-        self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
-        self.ver_conv = tfk.layers.Conv2D(self.p, [self.n//2, self.n])
+        
         
         self.res_conv = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
         self.res_conv2 = tfk.layers.Conv2D(self.p, [1,1])
