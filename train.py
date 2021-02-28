@@ -67,7 +67,7 @@ class Trainer:
         for step in tqdm(range(iter)):
             if anneal==True:
                 beta = beta_conv*(1 - self.beta_anneal**step)
-            loss, energy = self.backprop(beta, self.seed) #type: ignore
+            loss, energy = self.backprop(beta) #type: ignore
 
             if (step%interval) == interval-1:
                 t2 = time()
