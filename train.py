@@ -9,7 +9,7 @@ from time import time
 # %%
 class Trainer:
     def __init__(self, model, batch_size=50, learning_rate=0.01):
-        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.01, 500, 0.8, True)
+        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(0.01, 500, 0.4, True)
         self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
         self.beta_anneal = 0.99
         self.model = model
@@ -39,7 +39,7 @@ class Trainer:
         grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
         print("Tracing")
-        return loss, energy
+        return loss/beta, energy
 
     def train_loop(self, iter, beta, anneal=True):
         """Runs the unsupervised training loop for VAN training.
