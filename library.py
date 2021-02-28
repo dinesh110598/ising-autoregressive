@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras as tfk
 from tensorflow import math as tfm
+import ising
 # %%
 class MaskedConv2D(tfk.layers.Layer):
     def __init__(self, mask_type='A', filters=64, kernel_size=5, **kwargs):
@@ -355,5 +356,32 @@ class GatedPixelCNN(tfk.Model):
             axis=0)
         log_prob -= tfm.log(2.)
         return tf.cast(log_prob, tf.float32)
+    
+class GatedPCNN(ising.AutoregressiveModel):
+    def __init__(self, L=24, kernel_size=3, net_depth=3, net_width=32,
+                 epsilon=0.001):
+        super(GatedPCNN, self).__init__(L, epsilon)
+        assert kernel_size%2 == 1
+        assert net_depth > 0
+        assert net_width > 0
+        self.net_depth = net_depth
+        self.net_width = net_width
+        self.kernel_size = kernel_size
         
+        layers = []
+        layers.append( tfk.layers.Input((self.L, self.L, 1, 2)))
+        layers.append( GatedConvBlock(self.net_width, 'A', self.kernel_size))
+        for _ in range(self.net_depth-1):
+            layers.append( GatedConvBlock(self.net_width, 'B', self.kernel_size))
+        layers.append(FinalConv())
+            
+        self.net = tfk.Sequential(layers)
+
+    def call(self, sample):
+        x = tf.stack([sample, sample], axis=-1)
+        x_hat = self.net(x)
+        x_hat = tfm.multiply(x_hat,self.x_hat_mask)
+        x_hat = tfm.add(x_hat, self.x_hat_bias)
+        return x_hat
+
 # %%
