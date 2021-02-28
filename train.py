@@ -18,7 +18,7 @@ class Trainer:
                                         trainable=False)
 
     @tf.function
-    def backprop(self, beta, seed):
+    def backprop(self, beta):
         """Performs backpropagation on the calculated loss function
 
         Args:
@@ -27,7 +27,7 @@ class Trainer:
         Returns:
             loss (float): The current loss function for the sampled batch
         """
-        self.sample_graph = self.model.graph_sampler(self.sample_graph, seed)
+        self.sample_graph = self.model.graph_sampler(self.sample_graph, self.seed)
         energy = ising.energy(self.sample_graph)
         beta = tf.cast(beta, tf.float32)
         with tf.GradientTape(True, False) as tape:
@@ -60,14 +60,14 @@ class Trainer:
         interval = 20
 
         #Routines required for graph compilation
-        seed_graph = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
+        self.seed = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
             dtype=tf.int32, trainable=False)
         t1 = time()
         
         for step in tqdm(range(iter)):
             if anneal==True:
                 beta = beta_conv*(1 - self.beta_anneal**step)
-            loss, energy = self.backprop(beta, seed_graph) #type: ignore
+            loss, energy = self.backprop(beta, self.seed) #type: ignore
 
             if (step%interval) == interval-1:
                 t2 = time()
