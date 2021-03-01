@@ -16,6 +16,8 @@ class Trainer:
         self.batch_size= 50
         self.sample_graph = tf.Variable(tf.zeros([batch_size, self.model.L, self.model.L, 1]), 
                                         trainable=False)
+        self.seed = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
+                                dtype=tf.int32, trainable=False)
 
     @tf.function
     def backprop(self, beta):
@@ -38,7 +40,6 @@ class Trainer:
             loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
         grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
-        print("Tracing")
         return loss/beta, energy
 
     def train_loop(self, iter, beta, anneal=True):
@@ -60,8 +61,6 @@ class Trainer:
         interval = 20
 
         #Routines required for graph compilation
-        self.seed = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
-            dtype=tf.int32, trainable=False)
         t1 = time()
         
         for step in tqdm(range(iter)):
