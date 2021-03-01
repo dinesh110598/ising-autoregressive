@@ -290,6 +290,7 @@ class GatedPixelCNN(tfk.Model):
         layers.append( GatedConvBlock(self.net_width, 'A', self.kernel_size))
         
         for _ in range(self.net_depth-1):
+            layers.append(tfk.layers.BatchNormalization())
             layers.append( GatedConvBlock(self.net_width, 'B', self.kernel_size))
         
         layers.append(FinalConv())
