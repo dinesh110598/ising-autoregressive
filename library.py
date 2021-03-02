@@ -219,11 +219,11 @@ class GatedConvBlock(tfk.layers.Layer):
             self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2,0),(self.n//2,self.n//2)))
             self.ver_conv = tfk.layers.Conv2D(self.p, [(self.n//2)+1, self.n])
             
-        
-        
-        self.res_conv = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
-        self.res_conv2 = tfk.layers.Conv2D(self.p, [1,1])
-        self.res_conv3 = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
+        self.conn_conv = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
+        self.res = 1 if mask_type=='B' else 0
+        if self.res:
+            self.res_conv1 = tfk.layers.Conv2D(self.p, [1,1])
+            self.res_conv2 = tfk.layers.Conv2D(self.p, [1,1], use_bias=False)
     
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
@@ -241,7 +241,7 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = self.hor_conv(h_stack)
         
         #Convolve v_stack and connect to h_stack
-        v_stack2 = self.res_conv(v_stack)
+        v_stack2 = self.conn_conv(v_stack)
         h_stack = tfm.add(h_stack, v_stack2)
         
         #"Gating" performed on horizontal stack        
@@ -251,9 +251,10 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = tfm.multiply(h_stack0, h_stack1)
         
         #Convolve h_stack2, h_stack and connect them
-        h_stack = self.res_conv2(h_stack)
-        h_stack2 = self.res_conv3(h_stack2)
-        h_stack = tfm.add(h_stack, h_stack2)
+        h_stack = self.res_conv1(h_stack)
+        if self.res:
+            h_stack2 = self.res_conv2(h_stack2)
+            h_stack = tfm.add(h_stack, h_stack2)
         
         return tf.stack([h_stack, v_stack], axis=-1)
     
@@ -386,3 +387,135 @@ class GatedPCNN(ising.AutoregressiveModel):
         return x_hat
 
 # %%
+class PCNN(ising.AutoregressiveModel):
+    def __init__(self, L=16, net_depth=3, net_width=64, kernel_size=5, res_block=True):
+        self.L = L
+        self.net_depth = net_depth
+        self.net_width = net_width
+        self.kernel_size = kernel_size
+        self.res_block = res_block
+        super(PCNN, self).__init__(L, 0.0001)
+
+        layers = []
+        layers.append(tfk.layers.Input(shape=(self.L, self.L, 1)))
+        layers.append(
+            MaskedConv2D(
+                mask_type='A',
+                filters=1 if self.net_depth == 1 else self.net_width,
+                kernel_size=self.kernel_size,
+                activation='sigmoid' if self.net_depth == 1 else None
+            )
+        )
+        for _ in range(self.net_depth-2):
+            if self.res_block:
+                layers.append(
+                    self._build_res_block())
+            else:
+                layers.append(
+                    self._build_simple_block())
+        if self.net_depth >= 2:
+            layers.append(
+                tfk.layers.LeakyReLU()
+            )
+            layers.append(
+                tfk.layers.Conv2D(1, 1, activation='sigmoid')
+            )
+        self.net = tfk.Sequential(layers)
+
+    def _build_simple_block(self):
+        layers = []
+        layers.append(tfk.layers.LeakyReLU())
+        layers.append(
+            MaskedConv2D(
+                mask_type='B',
+                filters=self.net_width,
+                kernel_size=self.kernel_size)
+        )
+        return tfk.Sequential(layers)
+
+    def _build_res_block(self):
+        layers = []
+        layers.append(tfk.layers.Conv2D(self.net_width, 1))
+        layers.append(tfk.layers.LeakyReLU())
+        layers.append(
+            MaskedConv2D(
+                mask_type='B',
+                filters=self.net_width,
+                kernel_size=self.kernel_size)
+        )
+        return ResBlock(tfk.Sequential(layers))
+
+    def call(self, x):
+        x_hat = self.net(x)
+        x_hat = x_hat*self.x_hat_mask + self.x_hat_bias  # type:ignore
+        return x_hat
+
+class AdvConvBlock(tfk.layers.Layer):
+    def __init__(self, kernel_size, out_features, mask_type='A'):
+        super(AdvConvBlock, self).__init__()
+        self.p = out_features
+        self.n = kernel_size
+
+        assert mask_type in ['A','B']
+        k = 1 if mask_type == 'B' else 0
+        self.hor_cropping = tfk.layers.Cropping2D(((0, 0), (0, 1-k)))
+        self.hor_padding = tfk.layers.ZeroPadding2D(
+            ((0, 0), (self.n//2, 0)))
+        self.hor_conv = tfk.layers.Conv2D(self.p, [1, (self.n//2)+k])
+
+        self.ver_cropping = tfk.layers.Cropping2D(((0, 1-k), (0, 0)))
+        self.ver_padding = tfk.layers.ZeroPadding2D(((self.n//2, 0), 
+                                                    (self.n//2, self.n//2)))
+        self.ver_conv = tfk.layers.Conv2D(self.p, [(self.n//2)+k, self.n])
+        self.res = k
+        if mask_type == 'B':
+            self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
+
+    def call(self, x):
+        h_stack, v_stack = tf.unstack(x, axis=-1)
+        #Vertical stack is acted by a vertical convolution
+        #equivalent to a masked one
+        v_stack = self.ver_cropping(v_stack)
+        v_stack = self.ver_padding(v_stack)
+        v_stack = self.ver_conv(v_stack)
+
+        #Horizontal stack is acted by a horizontal convolution
+        #equivalent to a masked one- h_stack2 is kept for later
+        h_stack2 = h_stack
+        h_stack = self.hor_cropping(h_stack)
+        h_stack = self.hor_padding(h_stack)
+        h_stack = self.hor_conv(h_stack)
+
+        #Connect horizontal and vertical stacks
+        h_stack = tfm.add(h_stack, v_stack)
+
+        #Make a residual connection between input state and output
+        if self.res == 1:
+            h_stack2 = self.res_conv(h_stack2)
+            h_stack = tfm.add(h_stack, h_stack2)
+
+        return tf.stack([h_stack, v_stack], axis=-1)
+
+class AdvPCNN(ising.AutoregressiveModel):
+    def __init__(self, L, net_depth, net_width, kernel_size):
+        super(AdvPCNN, self).__init__(L, 0.0001)
+        self.net_depth = net_depth
+        self.net_width = net_width
+        self.kernel_size = kernel_size
+        
+        layers = []
+        layers.append(tfk.layers.Input((self.L, self.L, 1, 2)))
+        layers.append(AdvConvBlock(self.net_width, 'A', self.kernel_size))
+        for _ in range(self.net_depth-1):
+            layers.append(GatedConvBlock(
+                    self.net_width, 'B', self.kernel_size))
+        layers.append(FinalConv())
+
+        self.net = tfk.Sequential(layers)
+
+    def call(self, x):
+        x = tf.stack([x,x], axis=-1)
+        x_hat = self.net(x)
+        x_hat = tfm.multiply(x_hat, self.x_hat_mask)
+        x_hat = tfm.add(x_hat, self.x_hat_bias)
+        return x_hat
