@@ -224,19 +224,30 @@ class FinalConv(tfk.layers.Layer):
         return x
 
 class AdvPixelCNN(ising.AutoregressiveModel):
-    def __init__(self, L, net_depth, net_width, kernel_size, gated=False):
+    def __init__(self, L, kernel_size, net_width, net_depth=None, gated=False):
         super(AdvPixelCNN, self).__init__(L, 0.0001)
+        if net_depth == None:
+            assert type(net_width) == list
+            net_depth = len(net_width)
+            list_features = True
+        else:
+            list_features = False
         self.net_depth = net_depth
         self.net_width = net_width
         self.kernel_size = kernel_size
         
         layers = []
+        out_features = self.net_width
         layers.append(tfk.layers.Input((self.L, self.L, 1, 2)))
         conv_block = GatedConvBlock if gated else PlainConvBlock
-        layers.append(conv_block(self.net_width, self.kernel_size, 'A'))
-        for _ in range(self.net_depth-1):
+        if list_features:
+            out_features = net_width[0]
+        layers.append(conv_block(out_features, self.kernel_size, 'A'))
+        for i in range(self.net_depth-1):
+            if list_features:
+                out_features = net_width[i+1]
             layers.append(conv_block(
-                self.net_width, self.kernel_size, 'B'))
+                out_features, self.kernel_size, 'B'))
         layers.append(FinalConv())
 
         self.net = tfk.Sequential(layers)
