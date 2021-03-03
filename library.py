@@ -129,9 +129,6 @@ class PlainConvBlock(tfk.layers.Layer):
         if mask_type == 'B':
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
 
-        self.activation_param = tf.Variable(0.3, trainable=True)
-        self.activation_fun = tfk.layers.LeakyReLU(alpha=self.activation_param)
-
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
         #Vertical stack is acted by a vertical convolution
@@ -157,7 +154,7 @@ class PlainConvBlock(tfk.layers.Layer):
         #Act with non-linear activation function
 
         full_stack = tf.stack([h_stack, v_stack], axis=-1)
-        return self.activation_fun(full_stack)
+        return tfk.activations.tanh(full_stack)
 
 
 class GatedConvBlock(tfk.layers.Layer):
