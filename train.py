@@ -60,7 +60,6 @@ class Trainer:
         'Train time':[]}
         interval = 20
 
-        #Routines required for graph compilation
         t1 = time()
         
         for step in tqdm(range(iter)):
