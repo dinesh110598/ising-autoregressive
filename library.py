@@ -108,6 +108,11 @@ class PixelCNN(ising.AutoregressiveModel):
 #GatedConvBlock has a multiplying gate which can improve the learning
 #capability over PlainConvBlock, which only has convolutions with 
 #residual connections
+def AlphaConstraint(w):
+    "Constraints w to range [0,1]"
+    w = tfm.abs(w)
+    return tfm.minimum(w, 1.0)
+
 class PlainConvBlock(tfk.layers.Layer):
     def __init__(self, out_features, kernel_size, mask_type='A'):
         super(PlainConvBlock, self).__init__()
@@ -132,7 +137,8 @@ class PlainConvBlock(tfk.layers.Layer):
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
 
         self.sec_conv = tfk.layers.Conv2D(self.p, 1)
-        self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32)
+        self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32, 
+                                        constraint=AlphaConstraint)
 
     @tf.function
     def call(self, x):
@@ -154,9 +160,9 @@ class PlainConvBlock(tfk.layers.Layer):
         h_stack = tfm.add(h_stack, v_stack)
 
         #Convolve and act translationally invariant version of Prelu using
-        #LeakyRelu and passing user-defined scalar variable for alpha
+        #tf.maximum and passing user-defined scalar variable for alpha
         h_stack = self.sec_conv(h_stack)
-        h_stack = tfk.layers.LeakyReLU(self.alpha_scalar)(h_stack)
+        h_stack = tfm.maximum(self.alpha_scalar*h_stack, h_stack)
 
         #Make a residual connection between input state and output
         if self.res == 1:
