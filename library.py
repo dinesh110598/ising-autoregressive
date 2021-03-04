@@ -140,7 +140,6 @@ class PlainConvBlock(tfk.layers.Layer):
         self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32, 
                                         constraint=AlphaConstraint)
 
-    @tf.function
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
         #Vertical stack is acted by a vertical convolution
