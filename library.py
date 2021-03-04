@@ -116,6 +116,8 @@ class PlainConvBlock(tfk.layers.Layer):
 
         assert mask_type in ['A','B']
         k = 1 if mask_type == 'B' else 0
+        #Definitions of variables/layers that initialize them must be 
+        #made here, outside the call function
         self.hor_cropping = tfk.layers.Cropping2D(((0, 0), (0, 1-k)))
         self.hor_padding = tfk.layers.ZeroPadding2D(
             ((0, 0), (self.n//2, 0)))
@@ -128,6 +130,9 @@ class PlainConvBlock(tfk.layers.Layer):
         self.res = k
         if mask_type == 'B':
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
+
+        self.sec_conv = tfk.layers.Conv2D(self.p, 1)
+        self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32)
 
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
@@ -146,6 +151,11 @@ class PlainConvBlock(tfk.layers.Layer):
 
         #Connect horizontal and vertical stacks
         h_stack = tfm.add(h_stack, v_stack)
+
+        #Convolve and act translationally invariant version of Prelu using
+        #LeakyRelu and passing user-defined scalar variable for alpha
+        h_stack = self.sec_conv(h_stack)
+        h_stack = tfk.layers.LeakyReLU(self.alpha_scalar)(h_stack)
 
         #Make a residual connection between input state and output
         if self.res == 1:
@@ -260,3 +270,4 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         x_hat = tfm.multiply(x_hat, self.x_hat_mask)
         x_hat = tfm.add(x_hat, self.x_hat_bias)
         return x_hat
+# %%
