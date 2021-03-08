@@ -137,7 +137,10 @@ class PlainConvBlock(tfk.layers.Layer):
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
 
         self.sec_conv = tfk.layers.Conv2D(self.p, 1)
+        self.sec_conv2 = tfk.layers.Conv2D(self.p, 1)
         self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32, 
+                                        constraint=AlphaConstraint)
+        self.alpha_scalar2 = tf.Variable(0.3, True, dtype=tf.float32,
                                         constraint=AlphaConstraint)
 
     def call(self, x):
@@ -162,6 +165,8 @@ class PlainConvBlock(tfk.layers.Layer):
         #tf.maximum and passing user-defined scalar variable for alpha
         h_stack = self.sec_conv(h_stack)
         h_stack = tfm.maximum(self.alpha_scalar*h_stack, h_stack)
+        v_stack = self.sec_conv2(v_stack)
+        v_stack = tfm.maximum(self.alpha_scalar2*h_stack, h_stack)
 
         #Make a residual connection between input state and output
         if self.res == 1:
