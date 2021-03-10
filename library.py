@@ -114,10 +114,11 @@ def AlphaConstraint(w):
     return tfm.minimum(w, 1.0)
 
 class PlainConvBlock(tfk.layers.Layer):
-    def __init__(self, out_features, kernel_size, mask_type='A'):
+    def __init__(self, out_features, kernel_size, mask_type='A', last_layer=False):
         super(PlainConvBlock, self).__init__()
         self.p = out_features
         self.n = kernel_size
+        self.last_layer = last_layer
 
         assert mask_type in ['A','B']
         k = 1 if mask_type == 'B' else 0
@@ -137,12 +138,13 @@ class PlainConvBlock(tfk.layers.Layer):
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
 
         self.sec_conv = tfk.layers.Conv2D(self.p, 1)
-        self.sec_conv2 = tfk.layers.Conv2D(self.p, 1)
         self.alpha_scalar = tf.Variable(0.3, True, dtype=tf.float32, 
                                         constraint=AlphaConstraint)
-        self.alpha_scalar2 = tf.Variable(0.3, True, dtype=tf.float32,
-                                        constraint=AlphaConstraint)
-
+        if not self.last_layer:
+            self.sec_conv2 = tfk.layers.Conv2D(self.p, 1)
+            self.alpha_scalar2 = tf.Variable(0.3, True, dtype=tf.float32,
+                                             constraint=AlphaConstraint)
+            
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
         #Vertical stack is acted by a vertical convolution
@@ -163,18 +165,19 @@ class PlainConvBlock(tfk.layers.Layer):
 
         #Convolve and act translationally invariant version of Prelu using
         #tf.maximum and passing user-defined scalar variable for alpha
-        h_stack = self.sec_conv(h_stack)
         h_stack = tfm.maximum(self.alpha_scalar*h_stack, h_stack)
-        v_stack = self.sec_conv2(v_stack)
-        v_stack = tfm.maximum(self.alpha_scalar2*h_stack, h_stack)
+        h_stack = self.sec_conv(h_stack)
+        if not self.last_layer:
+            v_stack = tfm.maximum(self.alpha_scalar2*h_stack, h_stack)
+            v_stack = self.sec_conv2(v_stack)
 
         #Make a residual connection between input state and output
         if self.res == 1:
             h_stack2 = self.res_conv(h_stack2)
             h_stack = tfm.add(h_stack, h_stack2)
-        #Act with non-linear activation function
 
         full_stack = tf.stack([h_stack, v_stack], axis=-1)
+        #Act with non-linear activation function
         return tfk.activations.tanh(full_stack)
 
 
@@ -262,15 +265,17 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         layers = []
         out_features = self.net_width
         layers.append(tfk.layers.Input((self.L, self.L, 1, 2)))
-        conv_block = GatedConvBlock if gated else PlainConvBlock
+        conv_block = PlainConvBlock
         if list_features:
             out_features = net_width[0]
-        layers.append(conv_block(out_features, self.kernel_size, 'A'))
+        layers.append(conv_block(out_features, self.kernel_size, 'A',
+                                 last_layer=True if self.net_depth==1 else False))
         for i in range(self.net_depth-1):
             if list_features:
                 out_features = net_width[i+1]
             layers.append(conv_block(
-                out_features, self.kernel_size, 'B'))
+                out_features, self.kernel_size, 'B',
+                last_layer=True if i==self.net_depth-2 else False))
         layers.append(FinalConv())
 
         self.net = tfk.Sequential(layers)
