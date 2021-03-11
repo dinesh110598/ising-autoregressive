@@ -134,7 +134,7 @@ class PlainConvBlock(tfk.layers.Layer):
                                                     (self.n//2, self.n//2)))
         self.ver_conv = tfk.layers.Conv2D(self.p, [(self.n//2)+k, self.n])
         self.res = k
-        if mask_type == 'B':
+        if self.res:
             self.res_conv = tfk.layers.Conv2D(self.p, 1, use_bias=False)
 
         self.sec_conv = tfk.layers.Conv2D(self.p, 1)
@@ -182,11 +182,12 @@ class PlainConvBlock(tfk.layers.Layer):
 
 
 class GatedConvBlock(tfk.layers.Layer):
-    def __init__(self, out_features, kernel_size=5, mask_type='A'):
+    def __init__(self, out_features, kernel_size=5, mask_type='A', last_layer=False):
         super(GatedConvBlock, self).__init__()
         assert out_features % 2 == 0
         self.p = out_features
         self.n = kernel_size
+        self.last_layer = last_layer
 
         k = 1 if mask_type == 'B' else 0
         self.hor_cropping = tfk.layers.Cropping2D(((0, 0), (0, 1-k)))
@@ -199,11 +200,11 @@ class GatedConvBlock(tfk.layers.Layer):
                                                      (self.n//2, self.n//2)))
         self.ver_conv = tfk.layers.Conv2D(self.p, [(self.n//2)+k, self.n])
 
-        self.conn_conv = tfk.layers.Conv2D(self.p, [1, 1], use_bias=False)
+        self.ver_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
         self.res = k
-        self.res_conv1 = tfk.layers.Conv2D(self.p, [1, 1])
+        self.hor_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
         if self.res:
-            self.res_conv2 = tfk.layers.Conv2D(self.p, [1, 1], use_bias=False)
+            self.res_conv = tfk.layers.Conv2D(self.p//2, [1, 1], use_bias=False)
 
     def call(self, x):
         h_stack, v_stack = tf.unstack(x, axis=-1)
@@ -220,9 +221,8 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack = self.hor_padding(h_stack)
         h_stack = self.hor_conv(h_stack)
 
-        #Convolve v_stack and connect to h_stack
-        v_stack2 = self.conn_conv(v_stack)
-        h_stack = tfm.add(h_stack, v_stack2)
+        #Add v_stack to h_stack
+        h_stack = tfm.add(h_stack, v_stack)
 
         #"Gating" performed on horizontal stack
         h_stack0, h_stack1 = tf.split(h_stack, 2, axis=-1)
@@ -230,14 +230,40 @@ class GatedConvBlock(tfk.layers.Layer):
         h_stack1 = tfk.activations.sigmoid(h_stack1)
         h_stack = tfm.multiply(h_stack0, h_stack1)
 
+        #"Gating" and convolving vertical stack
+        if not self.last_layer:
+            v_stack0, v_stack1 = tf.split(v_stack, 2, axis=-1)
+            v_stack0 = tfk.activations.tanh(v_stack0)
+            v_stack1 = tfk.activations.sigmoid(v_stack1)
+            v_stack = tfm.multiply(v_stack0, v_stack1)
+
+            v_stack = self.ver_conv2(v_stack)
+
         #Convolve h_stack2, h_stack and connect them
-        h_stack = self.res_conv1(h_stack)
+        h_stack = self.hor_conv2(h_stack)
         if self.res:
-            h_stack2 = self.res_conv2(h_stack2)
+            h_stack2 = self.res_conv(h_stack2)
             h_stack = tfm.add(h_stack, h_stack2)
 
-        return tf.stack([h_stack, v_stack], axis=-1)
+        output = tf.stack([h_stack, v_stack], axis=-1)
+        return tfk.activations.relu(output, 0.3)
 
+class NatConvBlock(GatedConvBlock):
+    def __init__(self, out_features, kernel_size, mask_type='B', last_layer=False):
+        super(NatConvBlock, self).__init__(out_features, kernel_size, mask_type, last_layer)
+        self.p = out_features
+        self.n = kernel_size
+        self.last_layer = last_layer
+
+        assert mask_type in ['A','B']
+        k = 1 if mask_type == 'B' else 0
+        self.hor_cropping = tfk.layers.Cropping2D(((0,0),(0,1-k)))
+        self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n-1,0)))
+        self.hor_conv = tfk.layers.Conv2D(2*self.p, [1,self.n-1+k])
+
+        self.ver_cropping = tfk.layers.Cropping2D(((0,1-k),(0,0)))
+        self.ver_padding = tfk.layers.ZeroPadding2D(((1-k,0),(0,self.n-1)))
+        self.ver_conv = tfk.layers.Conv2D(2*self.p, [1,self.n])
 
 class FinalConv(tfk.layers.Layer):
     def __init__(self):
@@ -265,7 +291,7 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         layers = []
         out_features = self.net_width
         layers.append(tfk.layers.Input((self.L, self.L, 1, 2)))
-        conv_block = PlainConvBlock
+        conv_block = NatConvBlock
         if list_features:
             out_features = net_width[0]
         layers.append(conv_block(out_features, self.kernel_size, 'A',
