@@ -245,7 +245,10 @@ class GatedConvBlock(tfk.layers.Layer):
             h_stack2 = self.res_conv(h_stack2)
             h_stack = tfm.add(h_stack, h_stack2)
 
-        output = tf.stack([h_stack, v_stack], axis=-1)
+        if self.last_layer:
+            output = h_stack
+        else:
+            output = tf.stack([h_stack, v_stack], axis=-1)
         return tfk.activations.relu(output, 0.3)
 
 class NatConvBlock(GatedConvBlock):
@@ -259,21 +262,11 @@ class NatConvBlock(GatedConvBlock):
         k = 1 if mask_type == 'B' else 0
         self.hor_cropping = tfk.layers.Cropping2D(((0,0),(0,1-k)))
         self.hor_padding = tfk.layers.ZeroPadding2D(((0,0),(self.n-1,0)))
-        self.hor_conv = tfk.layers.Conv2D(2*self.p, [1,self.n-1+k])
+        self.hor_conv = tfk.layers.Conv2D(self.p, [1,self.n-1+k])
 
         self.ver_cropping = tfk.layers.Cropping2D(((0,1-k),(0,0)))
         self.ver_padding = tfk.layers.ZeroPadding2D(((1-k,0),(0,self.n-1)))
-        self.ver_conv = tfk.layers.Conv2D(2*self.p, [1,self.n])
-
-class FinalConv(tfk.layers.Layer):
-    def __init__(self):
-        super(FinalConv, self).__init__()
-        self.conv = tfk.layers.Conv2D(1, 1, activation='sigmoid')
-
-    def call(self, x):
-        x = tf.gather(x, 0, axis=-1)
-        x = self.conv(x)
-        return x
+        self.ver_conv = tfk.layers.Conv2D(self.p, [1,self.n])
 
 class AdvPixelCNN(ising.AutoregressiveModel):
     def __init__(self, L, kernel_size, net_width, net_depth=None, gated=False):
@@ -302,7 +295,7 @@ class AdvPixelCNN(ising.AutoregressiveModel):
             layers.append(conv_block(
                 out_features, self.kernel_size, 'B',
                 last_layer=True if i==self.net_depth-2 else False))
-        layers.append(FinalConv())
+        layers.append(tfk.layers.Conv2D(1, 1, activation='sigmoid'))
 
         self.net = tfk.Sequential(layers)
 
