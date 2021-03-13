@@ -57,8 +57,9 @@ class PixelCNN(ising.AutoregressiveModel):
                 filters=1 if self.net_depth == 1 else self.net_width,
                 kernel_size=self.kernel_size,
                 activation='sigmoid' if self.net_depth == 1 else None
-            )
-        )
+            ))
+        layers.append(tfk.layers.LeakyReLU())
+        layers.append(tfk.layers.Conv2D(self.net_width, 1))
         for _ in range(self.net_depth-2):
             if self.res_block:
                 layers.append(
@@ -67,9 +68,6 @@ class PixelCNN(ising.AutoregressiveModel):
                 layers.append(
                     self._build_simple_block())
         if self.net_depth >= 2:
-            layers.append(
-                tfk.layers.LeakyReLU()
-            )
             layers.append(
                 tfk.layers.Conv2D(1, 1, activation='sigmoid')
             )
@@ -88,14 +86,14 @@ class PixelCNN(ising.AutoregressiveModel):
 
     def _build_res_block(self):
         layers = []
-        layers.append(tfk.layers.Conv2D(self.net_width, 1))
-        layers.append(tfk.layers.LeakyReLU())
         layers.append(
             MaskedConv2D(
                 mask_type='B',
                 filters=self.net_width,
                 kernel_size=self.kernel_size)
         )
+        layers.append(tfk.layers.LeakyReLU())
+        layers.append(tfk.layers.Conv2D(self.net_width, 1))
         return ResBlock(tfk.Sequential(layers))
 
     def call(self, x):
@@ -176,9 +174,12 @@ class PlainConvBlock(tfk.layers.Layer):
             h_stack2 = self.res_conv(h_stack2)
             h_stack = tfm.add(h_stack, h_stack2)
 
-        full_stack = tf.stack([h_stack, v_stack], axis=-1)
+        if self.last_layer:
+            output = h_stack
+        else:
+            output = tf.stack([h_stack, v_stack], axis=-1)
         #Act with non-linear activation function
-        return tfk.activations.tanh(full_stack)
+        return output
 
 
 class GatedConvBlock(tfk.layers.Layer):
@@ -249,9 +250,9 @@ class GatedConvBlock(tfk.layers.Layer):
             output = h_stack
         else:
             output = tf.stack([h_stack, v_stack], axis=-1)
-        return tfk.activations.relu(output, 0.3)
+        return output
 
-class NatConvBlock(GatedConvBlock):
+class NatConvBlock(PlainConvBlock):
     def __init__(self, out_features, kernel_size, mask_type='B', last_layer=False):
         super(NatConvBlock, self).__init__(out_features, kernel_size, mask_type, last_layer)
         self.p = out_features
