@@ -252,7 +252,7 @@ class GatedConvBlock(tfk.layers.Layer):
             output = tf.stack([h_stack, v_stack], axis=-1)
         return output
 
-class NatConvBlock(PlainConvBlock):
+class NatConvBlock(GatedConvBlock):
     def __init__(self, out_features, kernel_size, mask_type='B', last_layer=False):
         super(NatConvBlock, self).__init__(out_features, kernel_size, mask_type, last_layer)
         self.p = out_features
