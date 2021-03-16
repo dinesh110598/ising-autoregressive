@@ -42,11 +42,6 @@ class AutoregressiveModel(tfk.Model):
                                 counts, x_hat[:,i,j,:], tf.float32)*2 - 1) #type: ignore
         #x_hat = self.call(sample)
         seed.assign((seed*1664525 + 1013904223) % 2**31)
-        counts = tf.expand_dims(counts, -1)
-        counts = tf.expand_dims(counts, -1)
-        flip = tf_binomial([batch_size,1,1,1], seed, counts, 0.5*counts, 
-            tf.float32)*2 - 1
-        sample.assign(sample*flip)#Done to ensure Z2 symmetry 
         return sample
     
     def _log_prob(self, sample, x_hat):
@@ -57,6 +52,33 @@ class AutoregressiveModel(tfk.Model):
         log_prob = tfm.reduce_sum(log_prob, [1,2,3])
         return log_prob
     
+    def log_prob(self, sample):
+        x_hat = self.call(sample)
+        log_prob = self._log_prob(sample, x_hat)
+        return tf.cast(log_prob, tf.float32)
+
+class SymmAutoregressiveModel(AutoregressiveModel):
+    def graph_sampler(self, sample, seed):
+        #Same as sample method above but specialised for graph compilation
+        batch_size = sample.shape[0]
+        counts = tf.ones([batch_size, 1])
+        sample.assign(tf.zeros(sample.shape))
+        tf_binomial = tf.random.stateless_binomial
+        for i in range(self.L):
+            for j in range(self.L):
+                seed.assign((seed*1664525 + 1013904223) % 2**31)
+                x_hat = self.call(sample)
+                sample = sample[:, i, j, :].assign(tf_binomial([batch_size, 1], seed,
+                                                               counts, x_hat[:, i, j, :], tf.float32)*2 - 1)  # type: ignore
+        #x_hat = self.call(sample)
+        seed.assign((seed*1664525 + 1013904223) % 2**31)
+        counts = tf.expand_dims(counts, -1)
+        counts = tf.expand_dims(counts, -1)
+        flip = tf_binomial([batch_size, 1, 1, 1], seed, counts, 0.5*counts,
+                           tf.float32)*2 - 1
+        sample.assign(sample*flip)  # Done to ensure Z2 symmetry
+        return sample
+
     def log_prob(self, sample):
         x_hat = self.call(sample)
         log_prob = self._log_prob(sample, x_hat)

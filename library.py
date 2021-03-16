@@ -98,7 +98,6 @@ class PixelCNN(ising.AutoregressiveModel):
 
     def call(self, x):
         x_hat = self.net(x)
-        x_hat = x_hat*self.x_hat_mask + self.x_hat_bias  # type:ignore
         return x_hat
 
 #The following model and dependent layers an improvement over the
@@ -303,7 +302,5 @@ class AdvPixelCNN(ising.AutoregressiveModel):
     def call(self, x):
         x = tf.stack([x,x], axis=-1)
         x_hat = self.net(x)
-        x_hat = tfm.multiply(x_hat, self.x_hat_mask)
-        x_hat = tfm.add(x_hat, self.x_hat_bias)
         return x_hat
 # %%

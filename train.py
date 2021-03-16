@@ -37,8 +37,11 @@ class Trainer:
             log_prob = self.model.log_prob(self.sample_graph)
             with tape.stop_recording():
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
+            regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph) +
+                                                self.model(-self.sample_graph)-1)
             loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
-        grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
+            total_loss = tfm.add(loss_reinforce, regularizer)
+        grads = tape.gradient(total_loss, self.model.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
         return loss/beta, energy
 
