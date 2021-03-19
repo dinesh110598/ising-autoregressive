@@ -96,10 +96,6 @@ class PixelCNN(ising.AutoregressiveModel):
         layers.append(tfk.layers.Conv2D(self.net_width, 1))
         return ResBlock(tfk.Sequential(layers))
 
-    def call(self, x):
-        x_hat = self.net(x)
-        return x_hat
-
 #The following model and dependent layers an improvement over the
 #PixelCNN model to counter blindspots in deep models in this class.
 #GatedConvBlock has a multiplying gate which can improve the learning
@@ -143,7 +139,11 @@ class PlainConvBlock(tfk.layers.Layer):
                                              constraint=AlphaConstraint)
             
     def call(self, x):
-        h_stack, v_stack = tf.unstack(x, axis=-1)
+        if self.res:
+            h_stack, v_stack = tf.unstack(x, axis=-1)
+        else:
+            h_stack = x
+            v_stack = x
         #Vertical stack is acted by a vertical convolution
         #equivalent to a masked one
         v_stack = self.ver_cropping(v_stack)
@@ -207,7 +207,11 @@ class GatedConvBlock(tfk.layers.Layer):
             self.res_conv = tfk.layers.Conv2D(self.p//2, [1, 1], use_bias=False)
 
     def call(self, x):
-        h_stack, v_stack = tf.unstack(x, axis=-1)
+        if self.res == 1:
+            h_stack, v_stack = tf.unstack(x, axis=-1)
+        else:
+            h_stack = x
+            v_stack = x
         #Vertical stack is acted by a vertical convolution
         #equivalent to a masked one
         v_stack = self.ver_cropping(v_stack)
@@ -283,7 +287,7 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         
         layers = []
         out_features = self.net_width
-        layers.append(tfk.layers.Input((self.L, self.L, 1, 2)))
+        layers.append(tfk.layers.Input((self.L, self.L, 1)))
         conv_block = NatConvBlock
         if list_features:
             out_features = net_width[0]
@@ -298,9 +302,4 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         layers.append(tfk.layers.Conv2D(1, 1, activation='sigmoid'))
 
         self.net = tfk.Sequential(layers)
-
-    def call(self, x):
-        x = tf.stack([x,x], axis=-1)
-        x_hat = self.net(x)
-        return x_hat
 # %%

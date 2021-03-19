@@ -37,25 +37,16 @@ class Trainer:
             log_prob = self.model.log_prob(self.sample_graph)
             with tape.stop_recording():
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
-            regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph) +
-                                                self.model(-self.sample_graph)-1)
+            #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph) +
+                                                #self.model(-self.sample_graph)-1)
+            #regularizer = tfm.divide(regularizer, self.model.L**2)
             loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
-            total_loss = tfm.add(loss_reinforce, regularizer)
-        grads = tape.gradient(total_loss, self.model.trainable_weights)
+            #loss_reinforce = tfm.add(loss_reinforce, regularizer)
+        grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
         return loss/beta, energy
 
     def train_loop(self, iter, beta, anneal=True):
-        """Runs the unsupervised training loop for VAN training.
-
-        Args:
-            iter (int): No of batches to use for training
-            batch_size (int): No of lattices to sample for single training step
-            beta (float): Inverse temperature to use
-        Options:
-            If model is not None, **kwargs maybe supplied to initialize it.
-            See docstring for ising.PixelCNN() for details.
-        """
         
         beta = tf.convert_to_tensor(beta)
         beta_conv = tf.cast(beta, tf.float32)
