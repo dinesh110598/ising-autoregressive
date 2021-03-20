@@ -48,7 +48,7 @@ class Trainer:
 
     def train_loop(self, iter, beta, anneal=True):
         
-        beta = tf.convert_to_tensor(beta)
+        beta = tf.convert_to_tensor(beta, tf.float32)
         beta_conv = tf.cast(beta, tf.float32)
         history = {'step':[],'Free energy mean':[], 'Free energy std':[], 'Energy mean':[], 'Energy std':[],
         'Train time':[]}
@@ -71,5 +71,50 @@ class Trainer:
                 history['Train time'].append( (t2-t1)/interval)
                 t1 = time()
         
+        return history
+
+    @tf.function
+    def var_backprop(self, beta):
+        self.sample_graph = self.model.graph_sampler(self.sample_graph, self.seed, beta)
+        energy = ising.energy(self.sample_graph)
+        beta = tf.cast(beta, tf.float32)
+        with tf.GradientTape(True, False) as tape:
+            tape.watch(self.model.trainable_weights)
+            log_prob = self.model.log_prob(self.sample_graph, beta)
+            with tape.stop_recording():
+                loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
+            #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph, beta) +
+                                                #self.model(-self.sample_graph, beta) - 1)
+            #regularizer = tfm.divide(regularizer, self.model.L**2)
+            loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
+            #loss_reinforce = tfm.add(loss_reinforce, regularizer)
+        grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
+        return loss/beta, energy
+
+    def var_train_loop(self, iter, anneal=True):
+        history = {'step': [], 'Free energy mean': [], 'Free energy std': [], 'Energy mean': [], 'Energy std': [],
+                   'Train time': []}
+        interval = 20
+        t1 = time()
+
+        for step in tqdm(range(iter)):
+            if anneal==True:
+                mean_beta = 0.45*(1 - self.beta_anneal**step)
+            else:
+                mean_beta = 0.45
+            beta = tf.random.uniform([], mean_beta-0.05, mean_beta+0.05)
+            loss, energy = self.var_backprop(beta)  # type: ignore
+
+            if (step % interval) == interval-1:
+                t2 = time()
+                history['step'].append(step+1)
+                history['Free energy mean'].append(tfm.reduce_mean(loss))
+                history['Free energy std'].append(tfm.reduce_std(loss))
+                history['Energy mean'].append(tfm.reduce_mean(energy))
+                history['Energy std'].append(tfm.reduce_std(energy))
+                history['Train time'].append((t2-t1)/interval)
+                t1 = time()
+
         return history
 # %%

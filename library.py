@@ -180,7 +180,6 @@ class PlainConvBlock(tfk.layers.Layer):
         #Act with non-linear activation function
         return output
 
-
 class GatedConvBlock(tfk.layers.Layer):
     def __init__(self, out_features, kernel_size=5, mask_type='A', last_layer=False):
         super(GatedConvBlock, self).__init__()
@@ -256,7 +255,7 @@ class GatedConvBlock(tfk.layers.Layer):
         return output
 
 class NatConvBlock(GatedConvBlock):
-    def __init__(self, out_features, kernel_size, mask_type='B', last_layer=False):
+    def __init__(self, out_features, kernel_size, mask_type, last_layer=False):
         super(NatConvBlock, self).__init__(out_features, kernel_size, mask_type, last_layer)
         self.p = out_features
         self.n = kernel_size
@@ -302,4 +301,179 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         layers.append(tfk.layers.Conv2D(1, 1, activation='sigmoid'))
 
         self.net = tfk.Sequential(layers)
+
+class VarConvBlock(tfk.layers.Layer):
+    def __init__(self, out_features, kernel_size, mask_type, last_layer=False):
+        super(VarConvBlock, self).__init__()
+        self.p = out_features
+        self.n = kernel_size
+        self.last_layer = last_layer
+
+        assert mask_type in ['A', 'B']
+        k = 1 if mask_type == 'B' else 0
+
+        self.hor_cropping = tfk.layers.Cropping2D(((0, 0), (0, 1-k)))
+        self.hor_padding = tfk.layers.ZeroPadding2D(((0, 0), (self.n-1, 0)))
+        self.hor_conv = tfk.layers.Conv2D(self.p, [1, self.n-1+k])
+        self.hor_seq = tfk.Sequential([
+            tfk.layers.Dense(self.p, "relu"),
+            tfk.layers.Dense(self.p, "relu", use_bias=False)
+        ])
+
+        self.ver_cropping = tfk.layers.Cropping2D(((0, 1-k), (0, 0)))
+        self.ver_padding = tfk.layers.ZeroPadding2D(((1-k, 0), (0, self.n-1)))
+        self.ver_conv = tfk.layers.Conv2D(self.p, [1, self.n])
+        self.ver_seq = tfk.Sequential([
+            tfk.layers.Dense(self.p, "tanh"),
+            tfk.layers.Dense(self.p, None, use_bias=False)
+        ])
+
+        self.ver_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
+        self.res = k
+        self.hor_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
+        if self.res:
+            self.res_conv = tfk.layers.Conv2D(self.p//2,
+                                              [1, 1], use_bias=False)
+
+    def call(self, x, beta):
+        beta = tf.reshape(beta, [1,1])
+        if self.res == 1:
+            h_stack, v_stack = tf.unstack(x, axis=-1)
+        else:
+            h_stack = x
+            v_stack = x
+        #Vertical stack is acted by a vertical convolution
+        #equivalent to a masked one
+        v_stack = self.ver_cropping(v_stack)
+        v_stack = self.ver_padding(v_stack)
+        v_stack = self.ver_conv(v_stack)
+        v_stack += self.ver_seq(beta)
+
+        #Horizontal stack is acted by a horizontal convolution
+        #equivalent to a masked one- h_stack2 is kept for later
+        h_stack2 = h_stack
+        h_stack = self.hor_cropping(h_stack)
+        h_stack = self.hor_padding(h_stack)
+        h_stack = self.hor_conv(h_stack)
+        h_stack = tfm.add(h_stack, self.hor_seq(beta))
+
+        #Add v_stack to h_stack
+        h_stack = tfm.add(h_stack, v_stack)
+
+        #"Gating" performed on horizontal stack
+        h_stack0, h_stack1 = tf.split(h_stack, 2, axis=-1)
+        h_stack0 = tfk.activations.tanh(h_stack0)
+        h_stack1 = tfk.activations.sigmoid(h_stack1)
+        h_stack = tfm.multiply(h_stack0, h_stack1)
+
+        #"Gating" and convolving vertical stack
+        if not self.last_layer:
+            v_stack0, v_stack1 = tf.split(v_stack, 2, axis=-1)
+            v_stack0 = tfk.activations.tanh(v_stack0)
+            v_stack1 = tfk.activations.sigmoid(v_stack1)
+            v_stack = tfm.multiply(v_stack0, v_stack1)
+
+            v_stack = self.ver_conv2(v_stack)
+
+        #Convolve h_stack2, h_stack and connect them
+        h_stack = self.hor_conv2(h_stack)
+        if self.res:
+            h_stack2 = self.res_conv(h_stack2)
+            h_stack = tfm.add(h_stack, h_stack2)
+
+        if self.last_layer:
+            output = h_stack
+        else:
+            output = tf.stack([h_stack, v_stack], axis=-1)
+        return output
+
+class VarPixelCNN(ising.AutoregressiveModel):
+    def __init__(self, L, kernel_size, net_width, net_depth=None, gated=False):
+        super(VarPixelCNN, self).__init__(L, 0.0001)
+        if net_depth == None:
+            assert type(net_width) == list
+            net_depth = len(net_width)
+            list_features = True
+        else:
+            list_features = False
+        self.net_depth = net_depth
+        self.net_width = net_width
+        self.kernel_size = kernel_size
+        layers = []
+        out_features = self.net_width
+        conv_block = VarConvBlock
+        if list_features:
+            out_features = net_width[0]
+        layers.append(conv_block(out_features, self.kernel_size, 'A',
+                                 last_layer=True if self.net_depth == 1 else False))
+        for i in range(self.net_depth-1):
+            if list_features:
+                out_features = net_width[i+1]
+            layers.append(conv_block(
+                out_features, self.kernel_size, 'B',
+                last_layer=True if i == self.net_depth-2 else False))
+        layers.append(tfk.layers.Conv2D(1, 1, activation='sigmoid'))
+        self.custom_layers = layers
+
+    def call(self, x, beta):
+        for i in range(self.net_depth+1):
+            if i==self.net_depth:
+                x = self.custom_layers[i](x)
+            else:
+                x = self.custom_layers[i](x, beta)
+        if self.z2:
+            x_hat = tfm.multiply(x, self.x_hat_mask)
+            x_hat = tfm.add(x_hat, self.x_hat_bias)
+        else:
+            x_hat = x
+        return x_hat
+
+    def sample(self, batch_size, beta):
+        beta = tf.convert_to_tensor(beta, tf.float32)
+        sample = np.zeros([batch_size, self.L, self.L, 1], np.float32)
+        for i in range(self.L):
+            for j in range(self.L):
+                x_hat = self.call(sample, beta)
+                sample[:, i, j, :] = np.random.binomial(1,
+                                    x_hat[:, i, j, :], [batch_size, 1])*2 - 1  # type: ignore
+        #x_hat = self.call(sample)
+        if self.z2:
+            flip = np.random.binomial(1, 0.5, [batch_size, 1, 1, 1])*2 - 1
+            sample = sample*flip
+        return sample
+
+    def graph_sampler(self, sample, seed, beta):
+        #Same as sample method above but specialised for graph compilation
+        batch_size = sample.shape[0]
+        counts = tf.ones([batch_size, 1])
+        sample.assign(tf.zeros(sample.shape))
+        tf_binomial = tf.random.stateless_binomial
+        for i in range(self.L):
+            for j in range(self.L):
+                seed.assign((seed*1664525 + 1013904223) % 2**31)
+                x_hat = self.call(sample, beta)
+                sample = sample[:, i, j, :].assign(tf_binomial([batch_size, 1], seed,
+                                                               counts, x_hat[:, i, j, :], tf.float32)*2 - 1)  # type: ignore
+        #x_hat = self.call(sample)
+        if self.z2:
+            seed.assign((seed*1664525 + 1013904223) % 2**31)
+            counts = tf.expand_dims(counts, -1)
+            counts = tf.expand_dims(counts, -1)
+            flip = tf_binomial([batch_size, 1, 1, 1], seed, counts, 0.5*counts,
+                               tf.float32)*2 - 1
+            sample.assign(sample*flip)
+        return sample
+
+    def log_prob(self, sample, beta):
+        x_hat = self.call(sample, beta)
+        log_prob = self._log_prob(sample, x_hat)
+        if self.z2:
+            sample_inv = -sample
+            x_hat_inv = self.call(sample_inv, beta)
+            log_prob_inv = self._log_prob(sample_inv, x_hat_inv)
+            log_prob = tfm.reduce_logsumexp(
+                tf.stack([log_prob, log_prob_inv]),
+                axis=0)
+            log_prob -= tfm.log(2.)
+        return tf.cast(log_prob, tf.float32)
 # %%
