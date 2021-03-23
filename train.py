@@ -103,7 +103,7 @@ class Trainer:
                 mean_beta = 0.45*(1 - self.beta_anneal**step)
             else:
                 mean_beta = 0.45
-            beta = tf.random.normal([], mean_beta-delta, mean_beta+delta)
+            beta = tf.random.normal([], mean_beta, delta)
             loss, energy = self.var_backprop(beta)  # type: ignore
 
             if (step % interval) == interval-1:
