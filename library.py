@@ -316,8 +316,8 @@ class VarConvBlock(tfk.layers.Layer):
         self.hor_padding = tfk.layers.ZeroPadding2D(((0, 0), (self.n-1, 0)))
         self.hor_conv = tfk.layers.Conv2D(self.p, [1, self.n-1+k])
         self.hor_seq = tfk.Sequential([
-            tfk.layers.Dense(self.p, "relu"),
-            tfk.layers.Dense(self.p, "relu", use_bias=False)
+            tfk.layers.Dense(self.p, "tanh"),
+            tfk.layers.Dense(self.p, "tanh", use_bias=False)
         ])
 
         self.ver_cropping = tfk.layers.Cropping2D(((0, 1-k), (0, 0)))
@@ -325,7 +325,7 @@ class VarConvBlock(tfk.layers.Layer):
         self.ver_conv = tfk.layers.Conv2D(self.p, [1, self.n])
         self.ver_seq = tfk.Sequential([
             tfk.layers.Dense(self.p, "tanh"),
-            tfk.layers.Dense(self.p, None, use_bias=False)
+            tfk.layers.Dense(self.p, "tanh", use_bias=False)
         ])
 
         self.ver_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
