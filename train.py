@@ -8,7 +8,7 @@ from tqdm import tqdm
 from time import time
 # %%
 class Trainer:
-    def __init__(self, model, batch_size=50, learning_rate=0.01):
+    def __init__(self, model, batch_size=50, learning_rate=0.005):
         self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 200, 0.9, True)
         self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
         self.beta_anneal = 0.99
