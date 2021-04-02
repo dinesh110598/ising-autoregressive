@@ -9,7 +9,7 @@ from time import time
 # %%
 class Trainer:
     def __init__(self, model, batch_size=50, learning_rate=0.005):
-        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 150, 0.9, True)
+        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 200, 0.9, True)
         self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
         self.beta_anneal = 0.99
         self.model = model
@@ -75,12 +75,12 @@ class Trainer:
 
     @tf.function
     def var_backprop(self, beta):
-        self.sample_graph = self.model.graph_sampler(self.sample_graph, self.seed, beta)
-        energy = ising.energy(self.sample_graph)
+        sample = self.model.graph_sampler(self.batch_size, self.seed, beta)
+        energy = ising.energy(sample)
         beta = tf.cast(beta, tf.float32)
         with tf.GradientTape(True, False) as tape:
             tape.watch(self.model.trainable_weights)
-            log_prob = self.model.log_prob(self.sample_graph, beta)
+            log_prob = self.model.log_prob(sample, beta)
             with tape.stop_recording():
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
             #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph, beta) +

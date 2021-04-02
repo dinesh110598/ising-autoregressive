@@ -414,6 +414,13 @@ class VarPixelCNN(ising.AutoregressiveModel):
                 last_layer=True if i == self.net_depth-2 else False))
         layers.append(tfk.layers.Conv2D(1, 1, activation='sigmoid'))
         self.custom_layers = layers
+        #For use in sampling methods
+        if list_features:
+            self.learn_range = np.sum(net_width)-len(net_width)
+        else:
+            self.learn_range = net_depth*(net_width-1)
+        #Semantically, along the y axis, the given spin depends only on
+        #"learn_range" spins before and after it
 
     def call(self, x, beta):
         for i in range(self.net_depth+1):
@@ -421,7 +428,7 @@ class VarPixelCNN(ising.AutoregressiveModel):
                 x = self.custom_layers[i](x)
             else:
                 x = self.custom_layers[i](x, beta)
-        if self.z2:
+        if self.z2 and x.shape[1]==self.L:
             x_hat = tfm.multiply(x, self.x_hat_mask)
             x_hat = tfm.add(x_hat, self.x_hat_bias)
         else:
@@ -431,29 +438,40 @@ class VarPixelCNN(ising.AutoregressiveModel):
     def sample(self, batch_size, beta):
         beta = tf.convert_to_tensor(beta, tf.float32)
         sample = np.zeros([batch_size, self.L, self.L, 1], np.float32)
+        r = self.learn_range
         for i in range(self.L):
             for j in range(self.L):
-                x_hat = self.call(sample, beta)
-                sample[:, i, j, :] = np.random.binomial(1,
-                                    x_hat[:, i, j, :], [batch_size, 1])*2 - 1  # type: ignore
+                sub_sample = sample[:, np.maximum(i-1, 0):i+1, np.maximum(j-r, 0):np.minimum(j+r+1,self.L)]
+                x_hat = self.call(sub_sample, beta)
+                i_h = tfm.minimum(i, 1)
+                j_h = tfm.minimum(j, r)
+                probs = 0.5 if i == 0 and j == 0 else x_hat[:, i_h, j_h, :]
+                sample[:, i, j, :] = np.random.binomial(1, probs, 
+                                                        [batch_size, 1])*2 - 1
         #x_hat = self.call(sample)
         if self.z2:
             flip = np.random.binomial(1, 0.5, [batch_size, 1, 1, 1])*2 - 1
             sample = sample*flip
         return sample
 
-    def graph_sampler(self, sample, seed, beta):
+    def graph_sampler2(self, sample, seed, beta):
         #Same as sample method above but specialised for graph compilation
         batch_size = sample.shape[0]
         counts = tf.ones([batch_size, 1])
         sample.assign(tf.zeros(sample.shape))
         tf_binomial = tf.random.stateless_binomial
+        r = self.learn_range
         for i in range(self.L):
             for j in range(self.L):
                 seed.assign((seed*1664525 + 1013904223) % 2**31)
-                x_hat = self.call(sample, beta)
+                crop = tfk.layers.Cropping2D(((np.maximum(i-1,0), self.L-i-1),
+                                            (np.maximum(j-r, 0), np.maximum(self.L-1-j-r, 0))))
+                x_hat = self.call(crop(sample), beta)
+                i_h = tfm.minimum(i, 1)
+                j_h = tfm.minimum(j, r)
+                probs = 0.5 if i==0 and j==0 else x_hat[:, i_h, j_h, :]
                 sample = sample[:, i, j, :].assign(tf_binomial([batch_size, 1], seed,
-                                                               counts, x_hat[:, i, j, :], tf.float32)*2 - 1)  # type: ignore
+                                                        counts, probs, tf.float32)*2 - 1)
         #x_hat = self.call(sample)
         if self.z2:
             seed.assign((seed*1664525 + 1013904223) % 2**31)
@@ -462,6 +480,34 @@ class VarPixelCNN(ising.AutoregressiveModel):
             flip = tf_binomial([batch_size, 1, 1, 1], seed, counts, 0.5*counts,
                                tf.float32)*2 - 1
             sample.assign(sample*flip)
+        return sample
+
+    def graph_sampler(self, batch_size, seed, beta):
+        #Same as sample method above but specialised for graph compilation
+        sample = tf.zeros([batch_size, self.L, self.L, 1], tf.float32)
+        tf_binomial = tf.random.stateless_binomial
+        full_ones = tf.ones([batch_size], tf.int32)
+        full_zeros = tf.zeros_like(full_ones)
+        r = self.learn_range
+        for i in range(self.L):
+            for j in range(self.L):
+                seed.assign((seed*1664525 + 1013904223) % 2**31)
+                sub_sample = sample[:, np.maximum(i-1, 0):i+1, 
+                                    np.maximum(j-r, 0):np.minimum(j+r+1, self.L)]
+                x_hat = self.call(sub_sample, beta)
+                i_h = tfm.minimum(i, 1)
+                j_h = tfm.minimum(j, r)
+                probs = 0.5 if i == 0 and j == 0 else x_hat[:, i_h, j_h, 0]
+                indices = tf.stack([tf.range(batch_size), i*full_ones, j*full_ones, full_zeros], 1)
+                updates = tf_binomial([batch_size], seed, 1., probs, tf.float32)*2 - 1
+                sample = tf.tensor_scatter_nd_add(sample, tf.cast(indices, tf.int32), updates)
+                
+        #x_hat = self.call(sample)
+        if self.z2:
+            seed.assign((seed*1664525 + 1013904223) % 2**31)
+            flip = tf_binomial([batch_size, 1, 1, 1], seed, 1., 0.5,
+                               tf.float32)*2 - 1
+            sample = sample*flip
         return sample
 
     def log_prob(self, sample, beta):
