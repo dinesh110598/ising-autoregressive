@@ -84,6 +84,7 @@ class AutoregressiveModel(tfk.Model):
         return tf.cast(log_prob, tf.float32)
 
 J = -1.#This is the value of Ising coupling constant
+lattice = 'square'
 
 def energy(sample, pbc=False):
     """Calculates energy assuming open boundary conditions
@@ -91,18 +92,26 @@ def energy(sample, pbc=False):
     Args:
         sample (tf.Tensor): A batch of Ising lattices sampled from a VAN network
     """
-    #Adding nearest neighbours along x
     if pbc:
+        #Adding nearest neighbours along y
         term = tf.roll(sample, 1, 1)*sample
         energy = tfm.reduce_sum(term, axis=[1,2,3])
+        #Adding nearest neighbours along x
         term = tf.roll(sample, 1, 2)*sample
         energy += tfm.reduce_sum(term, axis=[1,2,3])
+        if lattice=='tri':
+            term = tf.roll(sample, [1,1], [1,2])*sample
+            energy += tfm.reduce_sum(term, axis=[1,2,3])
     else:
+        #Adding nearest neighbours along y
         term = sample[:, :-1, :, :]*sample[:, 1:, :, :]
         energy = tfm.reduce_sum(term, axis=[1,2,3])
-        #Adding nearest neighbours along y
+        #Adding nearest neighbours along x
         term = sample[:,:,:-1,:]*sample[:,:,1:,:]
         energy += tfm.reduce_sum(term, axis=[1,2,3])
+        if lattice == 'tri':
+            term = sample[:,:-1,:-1,:]*sample[:,1:,1:,:]
+            energy += tfm.reduce_sum(term, axis=[1,2,3])
     return tf.cast(J*energy, tf.float32)
 
 

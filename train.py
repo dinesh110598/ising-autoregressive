@@ -8,7 +8,7 @@ from tqdm import tqdm
 from time import time
 # %%
 class Trainer:
-    def __init__(self, model, batch_size=50, learning_rate=0.005):
+    def __init__(self, model, batch_size=50, learning_rate=0.001):
         self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 200, 0.9, True)
         self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
         self.beta_anneal = 0.99
@@ -92,7 +92,7 @@ class Trainer:
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
         return loss/beta, energy
 
-    def var_train_loop(self, iter, anneal=True, delta=0.1):
+    def var_train_loop(self, iter, anneal=True, mean=0.5, delta=0.1):
         history = {'step': [], 'Free energy mean': [], 'Free energy std': [], 'Energy mean': [], 'Energy std': [],
                    'Train time': []}
         interval = 20
@@ -100,9 +100,9 @@ class Trainer:
 
         for step in tqdm(range(iter)):
             if anneal==True:
-                mean_beta = 0.45*(1 - self.beta_anneal**step)
+                mean_beta = mean*(1 - self.beta_anneal**step)
             else:
-                mean_beta = 0.45
+                mean_beta = mean
             beta = tf.random.normal([], mean_beta, delta)
             loss, energy = self.var_backprop(beta)  # type: ignore
 
