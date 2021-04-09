@@ -9,7 +9,7 @@ from time import time
 # %%
 class Trainer:
     def __init__(self, model, batch_size=50, learning_rate=0.001):
-        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 200, 0.9, True)
+        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 250, 0.9, True)
         self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
         self.beta_anneal = 0.99
         self.model = model
@@ -82,6 +82,7 @@ class Trainer:
             tape.watch(self.model.trainable_weights)
             log_prob = self.model.log_prob(sample, beta)
             with tape.stop_recording():
+                beta = tf.squeeze(beta)
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
             #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph, beta) +
                                                 #self.model(-self.sample_graph, beta) - 1)
@@ -104,6 +105,7 @@ class Trainer:
             else:
                 mean_beta = mean
             beta = tf.random.normal([], mean_beta, delta)
+            beta = tf.reshape(beta, [1, 1, 1, 1])
             loss, energy = self.var_backprop(beta)  # type: ignore
 
             if (step % interval) == interval-1:

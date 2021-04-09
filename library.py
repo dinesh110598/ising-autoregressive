@@ -336,7 +336,6 @@ class VarConvBlock(tfk.layers.Layer):
                                               [1, 1], use_bias=False)
 
     def call(self, x, beta):
-        beta = tf.reshape(beta, [1,1])
         if self.res == 1:
             h_stack, v_stack = tf.unstack(x, axis=-1)
         else:
@@ -452,34 +451,6 @@ class VarPixelCNN(ising.AutoregressiveModel):
         if self.z2:
             flip = np.random.binomial(1, 0.5, [batch_size, 1, 1, 1])*2 - 1
             sample = sample*flip
-        return sample
-
-    def graph_sampler2(self, sample, seed, beta):
-        #Same as sample method above but specialised for graph compilation
-        batch_size = sample.shape[0]
-        counts = tf.ones([batch_size, 1])
-        sample.assign(tf.zeros(sample.shape))
-        tf_binomial = tf.random.stateless_binomial
-        r = self.learn_range
-        for i in range(self.L):
-            for j in range(self.L):
-                seed.assign((seed*1664525 + 1013904223) % 2**31)
-                crop = tfk.layers.Cropping2D(((np.maximum(i-1,0), self.L-i-1),
-                                            (np.maximum(j-r, 0), np.maximum(self.L-1-j-r, 0))))
-                x_hat = self.call(crop(sample), beta)
-                i_h = tfm.minimum(i, 1)
-                j_h = tfm.minimum(j, r)
-                probs = 0.5 if i==0 and j==0 else x_hat[:, i_h, j_h, :]
-                sample = sample[:, i, j, :].assign(tf_binomial([batch_size, 1], seed,
-                                                        counts, probs, tf.float32)*2 - 1)
-        #x_hat = self.call(sample)
-        if self.z2:
-            seed.assign((seed*1664525 + 1013904223) % 2**31)
-            counts = tf.expand_dims(counts, -1)
-            counts = tf.expand_dims(counts, -1)
-            flip = tf_binomial([batch_size, 1, 1, 1], seed, counts, 0.5*counts,
-                               tf.float32)*2 - 1
-            sample.assign(sample*flip)
         return sample
 
     def graph_sampler(self, batch_size, seed, beta):
