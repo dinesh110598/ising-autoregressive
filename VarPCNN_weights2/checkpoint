@@ -1,0 +1,2 @@
+model_checkpoint_path: "L36_k3_(16,8,4)_2"
+all_model_checkpoint_paths: "L36_k3_(16,8,4)_2"

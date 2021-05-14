@@ -256,6 +256,8 @@ class GatedConvBlock(tfk.layers.Layer):
 
 class NatConvBlock(GatedConvBlock):
     def __init__(self, out_features, kernel_size, mask_type, last_layer=False):
+        """Block corresponding to the BPnet instead of regular PixelCNN
+        """
         super(NatConvBlock, self).__init__(out_features, kernel_size, mask_type, last_layer)
         self.p = out_features
         self.n = kernel_size
@@ -303,6 +305,7 @@ class AdvPixelCNN(ising.AutoregressiveModel):
         self.net = tfk.Sequential(layers)
 
 class VarConvBlock(tfk.layers.Layer):
+    #This layer also takes temperature as input
     def __init__(self, out_features, kernel_size, mask_type, last_layer=False):
         super(VarConvBlock, self).__init__()
         self.p = out_features
@@ -422,11 +425,9 @@ class VarPixelCNN(ising.AutoregressiveModel):
         #"learn_range" spins before and after it
 
     def call(self, x, beta):
-        for i in range(self.net_depth+1):
-            if i==self.net_depth:
-                x = self.custom_layers[i](x)
-            else:
-                x = self.custom_layers[i](x, beta)
+        for i in range(self.net_depth):
+            x = self.custom_layers[i](x, beta)
+        x = self.custom_layers[self.net_depth](x)
         if self.z2 and x.shape[1]==self.L:
             x_hat = tfm.multiply(x, self.x_hat_mask)
             x_hat = tfm.add(x_hat, self.x_hat_bias)
@@ -494,3 +495,90 @@ class VarPixelCNN(ising.AutoregressiveModel):
             log_prob -= tfm.log(2.)
         return tf.cast(log_prob, tf.float32)
 # %%
+class HyperVarConvBlock(tfk.layers.Layer):
+    def __init__(self, out_features, kernel_size, mask_type, last_layer=False):
+        super(VarConvBlock, self).__init__()
+        self.p = out_features
+        self.n = kernel_size
+        self.last_layer = last_layer
+
+        assert mask_type in ['A', 'B']
+        k = 1 if mask_type == 'B' else 0
+
+        self.hor_cropping = tfk.layers.Cropping2D(((0, 0), (0, 1-k)))
+        self.hor_padding = tfk.layers.ZeroPadding2D(((0, 0), (self.n-1, 0)))
+        self.hor_conv = tfk.layers.Conv2D(self.p, [1, self.n-1+k])
+        self.hor_seq = tfk.Sequential([
+            tfk.layers.Dense(self.p, "tanh"),
+            tfk.layers.Dense(self.p, "tanh", use_bias=False)
+        ])
+        self.hor_coup_conv = tfk.layers.ZeroPaddin
+
+        self.ver_cropping = tfk.layers.Cropping2D(((0, 1-k), (0, 0)))
+        self.ver_padding = tfk.layers.ZeroPadding2D(((1-k, 0), (0, self.n-1)))
+        self.ver_conv = tfk.layers.Conv2D(self.p, [1, self.n])
+        self.ver_seq = tfk.Sequential([
+            tfk.layers.Dense(self.p, "tanh"),
+            tfk.layers.Dense(self.p, "tanh", use_bias=False)
+        ])
+        #We seek to operate on the couplings tensor here
+        self.ver_coup_conv = tfk.layers.ZeroPadding2D(((0,0),(1,self.n-1)))
+        self.ver_coup_conv = tfk.layers.Conv2D(self.p, [2, self.n+1])
+
+        self.ver_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
+        self.res = k
+        self.hor_conv2 = tfk.layers.Conv2D(self.p//2, [1, 1])
+        if self.res:
+            self.res_conv = tfk.layers.Conv2D(self.p//2,
+                                              [1, 1], use_bias=False)
+
+    def call(self, x, beta):
+        if self.res == 1:
+            h_stack, v_stack = tf.unstack(x, axis=-1)
+        else:
+            h_stack = x
+            v_stack = x
+        #Vertical stack is acted by a vertical convolution
+        #equivalent to a masked one
+        v_stack = self.ver_cropping(v_stack)
+        v_stack = self.ver_padding(v_stack)
+        v_stack = self.ver_conv(v_stack)
+        v_stack += self.ver_seq(beta)
+
+        #Horizontal stack is acted by a horizontal convolution
+        #equivalent to a masked one- h_stack2 is kept for later
+        h_stack2 = h_stack
+        h_stack = self.hor_cropping(h_stack)
+        h_stack = self.hor_padding(h_stack)
+        h_stack = self.hor_conv(h_stack)
+        h_stack = tfm.add(h_stack, self.hor_seq(beta))
+
+        #Add v_stack to h_stack
+        h_stack = tfm.add(h_stack, v_stack)
+
+        #"Gating" performed on horizontal stack
+        h_stack0, h_stack1 = tf.split(h_stack, 2, axis=-1)
+        h_stack0 = tfk.activations.tanh(h_stack0)
+        h_stack1 = tfk.activations.sigmoid(h_stack1)
+        h_stack = tfm.multiply(h_stack0, h_stack1)
+
+        #"Gating" and convolving vertical stack
+        if not self.last_layer:
+            v_stack0, v_stack1 = tf.split(v_stack, 2, axis=-1)
+            v_stack0 = tfk.activations.tanh(v_stack0)
+            v_stack1 = tfk.activations.sigmoid(v_stack1)
+            v_stack = tfm.multiply(v_stack0, v_stack1)
+
+            v_stack = self.ver_conv2(v_stack)
+
+        #Convolve h_stack2, h_stack and connect them
+        h_stack = self.hor_conv2(h_stack)
+        if self.res:
+            h_stack2 = self.res_conv(h_stack2)
+            h_stack = tfm.add(h_stack, h_stack2)
+
+        if self.last_layer:
+            output = h_stack
+        else:
+            output = tf.stack([h_stack, v_stack], axis=-1)
+        return output

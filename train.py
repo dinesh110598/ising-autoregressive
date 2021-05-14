@@ -14,8 +14,6 @@ class Trainer:
         self.beta_anneal = 0.99
         self.model = model
         self.batch_size= 50
-        self.sample_graph = tf.Variable(tf.zeros([batch_size, self.model.L, self.model.L, 1]), 
-                                        trainable=False)
         self.seed = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
                                 dtype=tf.int32, trainable=False)
 
@@ -29,16 +27,16 @@ class Trainer:
         Returns:
             loss (float): The current loss function for the sampled batch
         """
-        self.sample_graph = self.model.graph_sampler(self.sample_graph, self.seed)
-        energy = ising.energy(self.sample_graph)
+        sample = self.model.graph_sampler(self.batch_size, self.seed)
+        energy = ising.energy(sample)
         beta = tf.cast(beta, tf.float32)
         with tf.GradientTape(True, False) as tape:
             tape.watch(self.model.trainable_weights)
-            log_prob = self.model.log_prob(self.sample_graph)
+            log_prob = self.model.log_prob(sample)
             with tape.stop_recording():
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
-            #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph) +
-                                                #self.model(-self.sample_graph)-1)
+            #regularizer = tfm.reduce_euclidean_norm(self.model(sample) +
+                                                #self.model(-sample)-1)
             #regularizer = tfm.divide(regularizer, self.model.L**2)
             loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
             #loss_reinforce = tfm.add(loss_reinforce, regularizer)
@@ -84,8 +82,8 @@ class Trainer:
             with tape.stop_recording():
                 beta = tf.squeeze(beta)
                 loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
-            #regularizer = tfm.reduce_euclidean_norm(self.model(self.sample_graph, beta) +
-                                                #self.model(-self.sample_graph, beta) - 1)
+            #regularizer = tfm.reduce_euclidean_norm(self.model(sample, beta) +
+                                                #self.model(-sample, beta) - 1)
             #regularizer = tfm.divide(regularizer, self.model.L**2)
             loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
             #loss_reinforce = tfm.add(loss_reinforce, regularizer)

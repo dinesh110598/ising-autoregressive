@@ -6,7 +6,7 @@ from tensorflow import math as tfm
 
 # %%
 class AutoregressiveModel(tfk.Model):
-    def __init__(self, L, epsilon, z2=True):
+    def __init__(self, L, epsilon=0.0001, z2=True):
         super(AutoregressiveModel, self).__init__()
         self.L = L
         self.epsilon = tf.cast(epsilon, tf.float32)
@@ -40,26 +40,28 @@ class AutoregressiveModel(tfk.Model):
             sample = sample*flip
         return sample
     
-    def graph_sampler(self, sample, seed):
+    def graph_sampler(self, batch_size, seed):
         #Same as sample method above but specialised for graph compilation
-        batch_size = sample.shape[0]
-        counts = tf.ones([batch_size, 1])
-        sample.assign(tf.zeros(sample.shape))
+        sample = tf.zeros([batch_size, self.L, self.L, 1], tf.float32)
         tf_binomial = tf.random.stateless_binomial
+        full_ones = tf.ones([batch_size], tf.int32)
+        full_zeros = tf.zeros_like(full_ones)
         for i in range(self.L):
             for j in range(self.L):
                 seed.assign((seed*1664525 + 1013904223) % 2**31)
                 x_hat = self.call(sample)
-                sample = sample[:,i,j,:].assign(tf_binomial([batch_size,1], seed, 
-                                counts, x_hat[:,i,j,:], tf.float32)*2 - 1) #type: ignore
+                updates = (tf_binomial([batch_size], seed, 
+                                1., x_hat[:,i,j,0], tf.float32)*2 - 1)
+                indices = tf.stack(
+                    [tf.range(batch_size), i*full_ones, j*full_ones, full_zeros], 1)
+                sample = tf.tensor_scatter_nd_add(sample, 
+                                                  tf.cast(indices, tf.int32), updates)
         #x_hat = self.call(sample)
         if self.z2:
             seed.assign((seed*1664525 + 1013904223) % 2**31)
-            counts = tf.expand_dims(counts, -1)
-            counts = tf.expand_dims(counts, -1)
-            flip = tf_binomial([batch_size, 1, 1, 1], seed, counts, 0.5*counts,
+            flip = tf_binomial([batch_size, 1, 1, 1], seed, 1., 0.5,
                             tf.float32)*2 - 1
-            sample.assign(sample*flip)
+            sample = sample
         return sample
     
     def _log_prob(self, sample, x_hat):
