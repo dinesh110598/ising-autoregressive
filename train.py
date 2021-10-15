@@ -1,119 +1,57 @@
 # %%
 import ising
-import numpy as np
 from tensorflow import keras as tfk
 from tensorflow import math as tfm
 import tensorflow as tf
+from BPnet import BPnet
 from tqdm import tqdm
-from time import time
-# %%
-class Trainer:
-    def __init__(self, model, batch_size=50, learning_rate=0.001):
-        self.lr_schedule = tfk.optimizers.schedules.ExponentialDecay(learning_rate, 250, 0.9, True)
-        self.optimizer = tfk.optimizers.Adam(self.lr_schedule, 0.5, 0.999)
-        self.beta_anneal = 0.99
-        self.model = model
-        self.batch_size= batch_size
-        self.seed = tf.Variable(np.random.randint(-2**30, 2**30, size=2, dtype=np.int32),
-                                dtype=tf.int32, trainable=False)
 
-    @tf.function
-    def backprop(self, beta):
-        """Performs backpropagation on the calculated loss function
 
-        Args:
-            beta (float): Inverse temperature
+@tf.function
+def backpropagate(x, beta, model, pars, opt):
+    """Performs backpropagation on the calculated loss function
 
-        Returns:
-            loss (float): The current loss function for the sampled batch
-        """
-        sample = self.model.graph_sampler(self.batch_size, self.seed)
-        energy = ising.energy(sample)
-        beta = tf.cast(beta, tf.float32)
-        with tf.GradientTape(True, False) as tape:
-            tape.watch(self.model.trainable_weights)
-            log_prob = self.model.log_prob(sample)
-            with tape.stop_recording():
-                loss = (log_prob + beta*energy) / (self.model.L**2)#type: ignore
-            #regularizer = tfm.reduce_euclidean_norm(self.model(sample) +
-                                                #self.model(-sample)-1)
-            #regularizer = tfm.divide(regularizer, self.model.L**2)
-            loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
-            #loss_reinforce = tfm.add(loss_reinforce, regularizer)
-        grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
-        self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
-        return loss/beta, energy
+    Args:
+        x (tf.Tensor): Sampled Ising spin configuration
+        beta (float): Inverse temperature
+        model (BPnet): Autoregressive neural network that samples and calculates the logits of Ising Model
+        pars (ising.IsingParams): Object defining various parameters of the Ising model
+        opt (tfk.optimizers.Optimizer): Neural network optimizer object
 
-    def train_loop(self, iter, beta, anneal=True):
-        
-        beta = tf.convert_to_tensor(beta, tf.float32)
-        beta_conv = tf.cast(beta, tf.float32)
-        history = {'step':[],'Free energy mean':[], 'Free energy std':[], 'Energy mean':[], 'Energy std':[],
-        'Train time':[]}
-        interval = 20
+    Returns:
+        loss (float): The current loss function for the sampled batch
+    """
+    E = ising.energy(x, pars)
+    with tf.GradientTape(False, False) as tape:
+        tape.watch(model.trainable_weights)
+        log_prob = model.log_prob(x)
+        with tape.stop_recording():
+            loss = (log_prob + beta * E) / (pars.L ** 2)
+        loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss)) * log_prob)
+    grads = tape.gradient(loss_reinforce, model.trainable_weights)
+    opt.apply_gradients(zip(grads, model.trainable_weights))
+    return loss / beta, E
 
-        t1 = time()
-        
-        for step in tqdm(range(iter)):
-            if anneal==True:
-                beta = beta_conv*(1 - self.beta_anneal**step)
-            loss, energy = self.backprop(beta) #type: ignore
 
-            if (step%interval) == interval-1:
-                t2 = time()
-                history['step'].append(step+1)
-                history['Free energy mean'].append( tfm.reduce_mean(loss))
-                history['Free energy std'].append( tfm.reduce_std(loss))
-                history['Energy mean'].append( tfm.reduce_mean(energy))
-                history['Energy std'].append( tfm.reduce_std(energy))
-                history['Train time'].append( (t2-t1)/interval)
-                t1 = time()
-        
-        return history
+def train_loop(model, tot_steps, beta, pars, batch_size=100, anneal=False, init_eta=0.005,
+               beta_anneal=0.95):
+    lr_schedule = tfk.optimizers.schedules.ExponentialDecay(init_eta, 250, 0.9, staircase=True)
+    opt = tfk.optimizers.Adam(lr_schedule)
+    beta_conv = beta
 
-    @tf.function
-    def var_backprop(self, sample, beta):
-        energy = ising.energy(sample, pbc=True)
-        beta = tf.cast(beta, tf.float32)
-        with tf.GradientTape(True, False) as tape:
-            tape.watch(self.model.trainable_weights)
-            log_prob = self.model.log_prob(sample, beta)
-            with tape.stop_recording():
-                beta = tf.squeeze(beta)
-                loss = (log_prob + beta*energy) / (self.model.L**2)
-            #regularizer = tfm.reduce_euclidean_norm(self.model(sample, beta) +
-                                                #self.model(-sample, beta) - 1)
-            #regularizer = tfm.divide(regularizer, self.model.L**2)
-            loss_reinforce = tfm.reduce_mean((loss - tfm.reduce_mean(loss))*log_prob)
-            #loss_reinforce = tfm.add(loss_reinforce, regularizer)
-        grads = tape.gradient(loss_reinforce, self.model.trainable_weights)
-        self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
-        return loss/beta, energy
+    outer = tqdm(total=tot_steps, desc='Training steps', position=0)
+    F_log = tqdm(total=0, position=1, bar_format='{desc}')
+    for step in range(tot_steps):
+        if anneal:
+            beta = beta_conv * (1 + beta_anneal**(step+1))
+        x = model.sample(pars.L, batch_size)
+        beta = tf.constant(beta, tf.float32)
+        F, E = backpropagate(x, beta, model, pars, opt)
+        mean_F = tfm.reduce_mean(F)
+        std_F = tfm.reduce_std(F)
+        outer.update(1)
+        F_log.set_description_str(f'Average F: {mean_F} \t Std F: {std_F}')
+        # Saving weights once in a while
+        if (step+1) % 500 == 0:
+            model.save_weights(f'Saves/Chkpts/b{beta_conv}_s{step+1}')
 
-    def var_train_loop(self, iter, anneal=True, mean=0.5, delta=0.1):
-        history = {'step': [], 'Free energy mean': [], 'Free energy std': [], 'Energy mean': [], 'Energy std': [],
-                   'Train time': []}
-        interval = 20
-        t1 = time()
-
-        for step in tqdm(range(iter)):
-            if anneal==True:
-                mean_beta = mean*(1 - self.beta_anneal**step)
-            else:
-                mean_beta = mean
-            beta = tf.random.normal([], mean_beta, delta)
-            sample = self.model.graph_sampler(self.batch_size, beta, self.seed)
-            loss, energy = self.var_backprop(sample, beta)  # type: ignore
-
-            if (step % interval) == interval-1:
-                t2 = time()
-                history['step'].append(step+1)
-                history['Free energy mean'].append(tfm.reduce_mean(loss))
-                history['Free energy std'].append(tfm.reduce_std(loss))
-                history['Energy mean'].append(tfm.reduce_mean(energy))
-                history['Energy std'].append(tfm.reduce_std(energy))
-                history['Train time'].append((t2-t1)/interval)
-                t1 = time()
-
-        return history
-# %%
