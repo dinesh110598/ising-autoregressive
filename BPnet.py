@@ -30,9 +30,8 @@ class ConvBlock(tfk.layers.Layer):
             self.m_conv[0].build([None, None, 1])
 
     def call(self, x_l, x_m, x_r):  # Overriding parent method is what we seek
-        if self.res == 1:
-            x_m2 = x_m
-        else:
+        x_m2 = x_m
+        if self.res == 0:
             x_l = tfk.layers.Cropping2D(((0, 0), (0, 1)))(x_l)
             x_r = tfk.layers.Cropping2D(((0, 1), (0, 0)))(x_r)
             x_r = tfk.layers.ZeroPadding2D(((1, 0), (0, 0)))(x_r)
@@ -79,7 +78,7 @@ class BPnet(tfk.models.Model):
         return self.final_conv(x_m)
 
     def update_seed(self):
-        self.seed.assign((self.seed * 1664525 + 1013904223) % 2 ** 31)
+        self.seed.assign((self.seed.value() * 1664525 + 1013904223) % 2 ** 31)
         # There's no actual problem with this
 
     @tf.function
@@ -91,8 +90,8 @@ class BPnet(tfk.models.Model):
         full_ones = tf.ones([batch_size], tf.int32)
         i, j = tf.unstack(pos)
         self.update_seed()
-        x = x[:, tfm.maximum(i - 1, 0):i + 1, tfm.maximum(j - r, 0):tfm.minimum(j + r + 1, L), :]
-        x_hat = self.call(x)
+        x_l = x[:, tfm.maximum(i - 1, 0):i + 1, tfm.maximum(j - r, 0):tfm.minimum(j + r + 1, L), :]
+        x_hat = self.call(x_l)
         i_h = tfm.minimum(i, 1)
         j_h = tfm.minimum(j, r)
 
