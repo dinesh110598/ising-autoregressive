@@ -68,6 +68,7 @@ class BPnet(tfk.models.Model):
         self.seed = tf.Variable(np.random.randint(-20000, 20000, 2, np.int32), False, dtype=tf.int32)
         # Above is the seed tensor for stateless random number generators
         self.learn_range = self.d * (self.n - 1)
+        self.epsilon = 1e-5
 
     def call(self, x):
         x_l = x
